@@ -1,0 +1,974 @@
+import os
+import numpy as np
+from matplotlib import pyplot as plt, patheffects as pe
+
+import rawpy as rawpy_lib
+from scipy.ndimage import gaussian_filter as gaussMd
+from sklearn.cluster import KMeans
+from sklearn.ensemble import HistGradientBoostingRegressor
+import logging
+import json
+import glob
+import re
+import datetime
+
+
+class Constants(object):
+    """
+    Constants used in the Ispeximage class
+    """
+    def __init__(self):
+        self.fluorescent_lines = np.array([611.6, 544.45, 436.6])  # RGB, units: nm
+        self.degree_of_spectral_line_fit = 2
+        self.degree_of_wavelength_fit = 2
+        self.degree_of_coefficient_fit = 4
+        self.wavelength_limits = (350, 750)
+
+
+class Ispeximage(object):
+    """
+    An instance of Ispeximage class is created for each image file.
+    The class contains methods to process the image file and save the processed data.
+    """
+    def __init__(self,
+                 dng_path,
+                 save_path_root = 'example_outputs',
+                 calibration_set = None,
+                 calibration_root = 'cameras',
+                 output_plots=False,
+                 type='observation'):
+        """
+        Initialize the Ispeximage object with the path to the dng image file,
+          camera profile, and output directory (if producing plots).
+
+        param dng_path: str, path to the dng image file
+        param save_path_root: str, path to the output directory to store plots and data
+        param calibration_set: str, path to the preferred calibration set (optional)
+        param calibration_root: str, root directory for calibration files
+        param output_plots: bool, whether to produce plots
+        param type: str, one of ['observation', 'fluorescent_lamp_cal']
+        """
+        self.log = logging.getLogger('ispex.image')
+        self.constants = Constants()
+
+        self.dng_path = dng_path            #  source RAW image file
+        self.label = os.path.basename(dng_path).split(".")[0]    # prefix for outputs
+        self.save_path = os.path.join(save_path_root)            #  output directory for plots, data files, should include 'Set' label
+        self.output_plots = output_plots    #  whether to produce plots
+        self.type = type                    #  type of image, used to determine processing steps
+
+        self.img_raw = None                 #  raw image data
+        self.img_post = None                #  raw image data mapped to RGB, for visualisation purposes only
+        self.img_raw_RGBG = None            #  raw image demosaicked to RGBG space
+        self.img_raw_RGB = None             #  raw image mapped to RGB (0-1 scale), for visualisation purposes only
+
+        self.datetimeuuid, regexmatch = self.get_datetime_uuid_exposure()    # datetime_uuid_exposure from the file name
+        self.obstype = regexmatch.groupdict()['obstype']                 # 'C', 'S', or 'W' for Card, Sky, Water
+        self.exposure_sequence = regexmatch.groupdict()['exposure_seq']  # E0, E1, E2, E3, or E4  also from metadata.exposure_index
+        self.datestr = regexmatch.groupdict()['datestr']                 # Date in YYYYMMDD format
+        self.timestr = regexmatch.groupdict()['timestr']                 # Time in HHMM format
+        self.uuid = regexmatch.groupdict()['uuid']                       # first 4 digits of the UUID, used to prevent duplication
+
+        # read metadata from json
+        self.metadata_path = self.dng_path.replace('.DNG', '.json').replace('IMG_', 'META_')
+        if not os.path.exists(self.metadata_path):
+            raise IOError(f"Metadata file not found: {self.metadata_path}")
+        metadata_json = json.load(open(self.metadata_path, 'r'))
+
+        self.device_model = metadata_json.get('device_model', None)
+        self.dev_model_sanitised = self.device_model.replace(' ', '_').replace(',','_')
+
+        self.iso = metadata_json.get('iso', None)
+        self.min_iso = metadata_json.get('min_iso', None)
+        self.max_iso = metadata_json.get('max_iso', None)
+        self.lens_position = metadata_json.get('lens_position', None)
+
+        self.latitude = metadata_json.get('latitude', None)
+        self.longitude = metadata_json.get('longitude', None)
+        self.elevation = metadata_json.get('elevation', None)
+        self.azimuth = metadata_json.get('azimuth', None)
+
+        self.time_utc = metadata_json.get('time_utc', None)
+
+        self.exposure_index = metadata_json.get('exposure_index', None)
+        self.exposure_mode = metadata_json.get('exposure_mode', None)
+        self.exposure_time = metadata_json.get('exposure_time', None)
+        self.exposure_duration = metadata_json.get('exposure_duration', None)
+        self.min_exposure_duration = metadata_json.get('min_exposure_duration', None)
+        self.max_exposure_duration = metadata_json.get('max_exposure_duration', None)
+        self.exposure_target_bias = metadata_json.get('exposure_target_bias', None)
+        self.exposure_target_offset = metadata_json.get('exposure_target_offset', None)
+
+        # Quality Control                   
+        self.check_areas = False            #  If False, the slit and/or projected areas could not be found
+
+        # Masks (0/1 encoded)
+        self.slit_area_mask = None          #  mask for the slit area
+        self.projected_area_mask = None     #  mask for the projected area   
+        # Edges along the slit dimension
+        self.start_qm = None                #  index of the start of the Qm area
+        self.end_qm = None                  #  index of the end of the Qm area
+        self.start_qp = None                #  index of the start of the Qp area
+        self.end_qp = None                  #  index of the end of the Qp area
+        # Top and bottom edges of the projected area k-means cluster 
+        self.top_qx = None                  #  index of the top of the projected area
+        self.bottom_qx = None               #  index of the bottom of the projected area
+
+        self.slice_Qm = None                # Qx pixel selection window
+        self.slice_Qp = None                # 
+
+        self.Qm_sliced = None               # Qx raw data block
+        self.Qp_sliced = None               # 
+
+        self.Qm_background_corrected = None # Qx raw data block, background corrected
+        self.Qp_background_corrected = None # 
+        self.background = None              # Background noise level interpolation, in brightness units
+        self.background_uncertainty_qm = None  # Uncertainty in background correction, in brightness units (2 sigma)
+        self.background_uncertainty_relative_qp = None # Uncertainty in background correction, relative to signal level (2 sigma, %)
+        self.wavelengths_split_Qp = None    # Wavelength mapped to each pixel in the sliced Qx 4d array
+        self.wavelengths_split_Qm = None    #
+
+        self.Qp_RGBG = None                 # RGBG values for each pixel in the Qx image after previous processing steps
+        self.Qm_RGBG = None                 #
+
+        self.Qp_stacked_RGB_mean = None     # Qx RGB values averaged along the slit dimension
+        self.Qm_stacked_RGB_mean = None     #
+
+        # Determine where calibration files should be saved (if mode is calibration) or retrieved
+        self.calibration_root = calibration_root               # Root directory for calibration files
+        self.calibration_set = calibration_set                 # Path to the preferred calibration file set, if provided
+        if self.type == 'fluorescent_lamp_cal':
+            # calibration coefficients will be stored later
+            self.wl_calib_qp = None
+            self.wl_calib_qm = None
+        elif self.type == 'observation':
+            self.wl_calib_qp, self.wl_calib_qm = self.find_latest_calibration(self.calibration_set)
+
+    def get_datetime_uuid_exposure(self):
+        """
+        Extract the datetime and UUID from the file name.
+        Returns:
+            str datetimeuuid: string representing the date_time_uuid_exposure. 
+        """ 
+        pattern = re.compile(r"IMG_(?P<datestr>\d{8})_(?P<timestr>\d{4})_(?P<uuid>\w{4})_(?P<obstype>\w{1})_(?P<exposure_seq>\w{2}).DNG")
+        match = pattern.match(os.path.basename(self.dng_path))
+        if match is None:
+            raise ValueError(f"Filename {self.dng_path} does not match expected pattern.")
+        datestr = match.groupdict()['datestr']  # Date in YYYYMMDD format
+        timestr = match.groupdict()['timestr']  # Time in HHMM format
+        uuid = match.groupdict()['uuid']        #  first 4 digits of the UUID, used to prevent duplication
+        exposure = match.groupdict()['exposure_seq']  # E0, E1, E2, E3, or E4
+        return f"{datestr}_{timestr}_{uuid}_{exposure}", match
+        
+    def find_latest_calibration(self, calibration_set_path=None):
+        """
+        Return the latest calibration coefficients for the camera.
+        Generate a folder for cal files if the device is new to us.
+        """
+        if calibration_set_path is None:
+            # where should the calibration files be located based on the device model?
+            cal_path = os.path.join(self.calibration_root, self.dev_model_sanitised)
+            if not os.path.exists(cal_path):
+                os.makedirs(cal_path)
+
+            # Find the latest calibration set (a folder possibly containing multiple calibration images with various exposures)
+            # Assuming calibration sets are named with a date format like 'YYYYMMDD_HHMM_UUID'
+            cal_sets = [folder for folder in glob.glob(os.path.join(cal_path, '*')) if os.path.isdir(folder)]
+            if not cal_sets:
+                self.log.info(f"No calibration sets found for {self.device_model} in {cal_path}.")
+                return None
+
+            pattern = re.compile(r"(?P<datestr>\d{8})_(?P<timestr>\d{4})_(?P<uuid>\d{4})")
+            caltimes = []
+            for cal_set in cal_sets:
+                match = pattern.match(os.path.basename(cal_set))
+                if match is None:
+                    caltimes.append(-1)
+                    continue
+                date = int(match.groupdict()['datestr'])  # Date in YYYYMMDD format
+                time = int(match.groupdict()['timestr'])  # Time in HHMM format
+                uuid = int(match.groupdict()['uuid'])     # UUID
+                caltimes.append(f"%Y%m%d%H%M")
+
+            calibration_set_path = cal_sets[np.argmax(caltimes)][0]
+
+            if calibration_set_path == -1:
+                if self.type == 'observation':
+                    raise FileNotFoundError(f"No calibration sets found for {self.device_model} in {cal_path}. Unable to process iSPEX image.")
+                return None
+
+        # load wavelength calibration coefficients from the specified calibration path
+        wl_calibs_qp = glob.glob(os.path.join(calibration_set_path, "*wavelength_calibration_Qp.npy"))
+        wl_calibs_qm = glob.glob(os.path.join(calibration_set_path, "*wavelength_calibration_Qm.npy"))
+        if (len(wl_calibs_qp) == 0) or (len(wl_calibs_qm) == 0):
+            raise FileNotFoundError(f"Wavelength calibration - missing record in: {calibration_set_path}")
+        if (len(wl_calibs_qp) != 1) or (len(wl_calibs_qm) != 1):
+            raise FileNotFoundError(f"Wavelength Calibration - too many records in: {calibration_set_path}")
+        self.wl_calib_qp = np.load(wl_calibs_qp[0])
+        self.wl_calib_qm = np.load(wl_calibs_qm[0])
+
+        return self.wl_calib_qp, self.wl_calib_qm
+    
+    def process(self):
+        """
+        Process the image file in memory.
+        Optionally write out plots.
+        """
+        log = logging.getLogger('ispex.image.process')
+        log.info(f"Reading image {self.label}")
+        # read the raw image
+        with rawpy_lib.imread(self.dng_path) as img:
+            # Ensure image type is as expected (RawType.Flat)
+            try:
+                assert img.raw_type.name == "Flat"
+            except AssertionError:
+                raise AssertionError(f"Invalid raw type: {img.raw_type}. Expected RawType.Flat")
+
+            # obtain the raw image and bayer RGBG pixel mapping pattern
+            self.img_raw = img.raw_image.astype(np.int16)  # was np.float64
+            self.bayer_map = img.raw_colors
+
+            #  scaled rgb image for visualisation, on the bayer pattern (interleaved RGBG pixels)
+            #  not recommended for analysis of any kind.
+            self.img_post = img.postprocess()
+
+        # Ensure images always have the same orientation
+        # Rotate if the vertical dimension is longer than the horizontal
+        if self.img_raw.shape[0] > self.img_raw.shape[1]:
+            self.img_raw = np.rot90(self.img_raw)
+        if self.bayer_map.shape[0] > self.bayer_map.shape[1]:
+            self.bayer_map = np.rot90(self.bayer_map)
+        if self.img_post.shape[0] > self.img_post.shape[1]:
+            self.img_post = np.rot90(self.img_post)
+
+        # Demosaick RAW image to RGBG format using the bayer pattern
+        self.img_raw_RGBG = self.demosaick(self.bayer_map, self.img_raw)
+        # combine G channels
+        self.img_raw_RGB = self._raw2RGB(normalise=False)
+
+        # self.imshowthis(self.img_raw_RGB, label='img_raw_RGB.png')  # Debug only
+
+        log.info(f"Identify slit and projected image areas")
+        self.find_areas()
+        if not self.check_areas:
+            log.error("Could not process image (projected areas are invalid)")
+            raise(Exception("Could not process image (projected areas are invalid)"))
+
+        # Background correction
+        log.info(f"Interpolate background brightness")
+        self.background_solver()
+        self.img_bg_corrected = self.img_raw_RGB - self.background
+
+
+        if self.type == 'fluorescent_lamp_cal':
+            self.process_fluorescent_lamp_calibration()
+
+        elif self.type == 'observation':
+            self.process_single_observation()
+
+        else:
+            log.error(f"Invalid record type: {self.type}")
+
+    def process_single_observation(self):
+        """
+        Using available calibration information, 
+        - calculate the wavelength for each pixel in the image
+        - compute radiances
+        """
+        log = logging.getLogger('ispex.image.process.single')
+        log.info(f"Processing iSPEX 2 image")
+
+        # updated code
+        bayer_Qp = self.bayer_map[np.s_[self.start_qp:self.end_qp]][:,::2]               #  (along-slit, along-spectrum)
+        bayer_Qm = self.bayer_map[np.s_[self.start_qm:self.end_qm]][:,::2]               #  
+        x = np.arange(self.img_raw_RGBG.shape[2])                                   #  (along-spectrum length of image)
+        xp = np.repeat(x[:,np.newaxis], bayer_Qp.shape[0], axis=1).T                #  (width of Q slice along-slit, length of image)
+        xm = np.repeat(x[:,np.newaxis], bayer_Qm.shape[0], axis=1).T                #  
+        yp = np.arange(self.end_qp-self.start_qp)                                   #  (width of Q slice along-slit,)
+        ym = np.arange(self.end_qm-self.start_qm)                                   #  
+        coeff_fit = np.array([np.polyval(c, yp) for c in self.wl_calib_qp]).T       #  (width of Q slice along-slit, 3)
+        wavelengths_qp = np.array([np.polyval(c_fit, x) for c_fit in coeff_fit])    #  (width of Q slice along-slit, length of image)
+        coeff_fit = np.array([np.polyval(c, ym) for c in self.wl_calib_qm]).T       #  
+        wavelengths_qm = np.array([np.polyval(c_fit, x) for c_fit in coeff_fit])    #  
+
+        # Interpolate to a regular wavelength grid 
+        # Bin pixels in wavelength space to a regular grid
+
+        # lambdarange = resultant wavelength grid
+        self.wavelength_grid, self.img_calibrated_qp = self.interpolate_multi(wavelengths_qp, self.img_bg_corrected[self.start_qp:self.end_qp, ::])
+        self.wavelength_grid, self.img_calibrated_qm = self.interpolate_multi(wavelengths_qm, self.img_bg_corrected[self.start_qm:self.end_qm, ::])
+
+        self.spectra_calibrated_qp = self.stack(self.wavelength_grid, self.img_calibrated_qp)  # RGB radiance in arbitrary units
+        self.spectra_calibrated_qm = self.stack(self.wavelength_grid, self.img_calibrated_qm)  # RGB radiance in arbitrary units
+
+    def process_fluorescent_lamp_calibration(self):
+        """
+        Determine wavelength calibration from a fluorescent lamp calibration image.
+        These images should be obtained in a dark environment with a fluorescent lamp
+        as the only light source illuminating a spectrally neutral panel diffuse panel.
+        """
+        self.log = logging.getLogger('ispex.image.process.cal')
+        self.log.info(f"Processing fluorescent lamp calibration image")
+
+        # Convert the RGB image to summed intensity
+        # img_grey = np.dot(self.img_post[..., :3], [0.33, 0.33, 0.33])
+        img_grey = np.nansum(self.img_raw_RGB, axis=2)
+
+        # Sum along the spectrum axis to find peaks corresponding to lamp 
+        along_projection_sum = np.sum(img_grey, axis=0)
+
+        # Ignore the part of the image that thas the slit
+        right_side_data = along_projection_sum[int(self.top_qx*0.8):]
+
+        # Set a threshold to find the significant peaks
+        threshold = 0.3 * np.max(right_side_data)
+        
+        # Find peaks with the specified threshold
+        peaks = self._find_cal_peaks(right_side_data, threshold=threshold)
+
+        # Adjust the peaks to account for the midpoint offset
+        adjusted_peaks = [peak + int(self.top_qx*0.8) for peak in peaks]
+        spectrum_start_pixel = min(adjusted_peaks)
+
+        # slice along the projection axis 
+        self.slice_qm_rgb = self.img_raw_RGB[self.start_qm:self.end_qm, ...]  # e.g. shape (321, 2016, 3)
+        self.slice_qp_rgb = self.img_raw_RGB[self.start_qp:self.end_qp, ...]  # e.g. shape (53,  2016, 3)
+
+        # find the start indices of the fluorescent R, G, and B lines,
+        # returning a list of indices for R, G, B line location for each pixel row along the slit dimension
+        lines_qm = self._find_fluorescent_lines(self.slice_qm_rgb[:, spectrum_start_pixel:, :]) + spectrum_start_pixel  # e.g. shape (321, 799)
+        lines_qp = self._find_fluorescent_lines(self.slice_qp_rgb[:, spectrum_start_pixel:, :]) + spectrum_start_pixel  # e.g. shape ( 53, 799)
+
+        # produce a polynomial fit through the R, G, B points found in previous step
+        x = np.arange(self.slice_qm_rgb.shape[1])   # (2016) - along projection axis
+        yp = np.arange(self.slice_qp_rgb.shape[0])  # (e.g. 53) - along slit axis
+        ym = np.arange(self.slice_qm_rgb.shape[0])  # (e.g. 393) - along slit axis
+        lines_fit_qp = self._fit_fluorescent_lines(lines_qp, yp)
+        lines_fit_qm = self._fit_fluorescent_lines(lines_qm, ym)
+
+        # Calculate the dispersion (nm/pixel) for each row (R line - B line) / (R pixel - B pixel)
+        # This describes how many pixels represent the projection from the slit between the R and B lines, i.e. a known wavelength interval
+        # This will be used to determine the spectral resolution by comparing against the width of the slit area.
+        # units nm/px
+        dispersion_qp = (self.constants.fluorescent_lines[0] - self.constants.fluorescent_lines[2]) / (lines_fit_qp[:,0] - lines_fit_qp[:,2])
+        dispersion_qm = (self.constants.fluorescent_lines[0] - self.constants.fluorescent_lines[2]) / (lines_fit_qm[:,0] - lines_fit_qm[:,2])
+
+        # Calculate the spectral resolution (FWHM in nm) for all rows
+        resolution_Qp = self.resolution(self.slice_qp_rgb, dispersion_qp)
+        resolution_Qm = self.resolution(self.slice_qm_rgb, dispersion_qm)
+        self.log.info(f"Median FWHM resolution Qp: {np.nanmedian(resolution_Qp)} nm")
+        self.log.info(f"Median FWHM resolution Qm: {np.nanmedian(resolution_Qm)} nm")
+
+        # Fit a wavelength relation for each row, meaning: try to fit a polynomial to the 3 lines (R, G, B) with 3 coefficients
+        # Using an ax^2 + bx + c function with the coefficients to match the wavelength, where x = the pixel value that corresponds with R,G,B
+        wavelength_fits_qp = self.fit_many_wavelength_relations(yp, lines_fit_qp)
+        wavelength_fits_qm = self.fit_many_wavelength_relations(ym, lines_fit_qm)
+        # Fit a polynomial to the coefficients of the previous fit
+        # This array of 15 values can be used to calculate any value of wavelength for any pixel in the image!
+
+        coefficients_qp, coefficients_fit_qp = self.fit_wavelength_coefficients(yp, wavelength_fits_qp)
+        coefficients_qm, coefficients_fit_qm = self.fit_wavelength_coefficients(ym, wavelength_fits_qm)
+        
+        # Save the coefficients to file for use when processing other images
+        cal_save_path = os.path.join(self.calibration_root, self.dev_model_sanitised, self.datetimeuuid)
+        if not os.path.exists(cal_save_path):
+            os.makedirs(cal_save_path)
+        np.save(os.path.join(cal_save_path, f"{self.datetimeuuid}_{self.exposure_sequence}_wavelength_calibration_Qm.npy"), coefficients_qm)
+        np.save(os.path.join(cal_save_path, f"{self.datetimeuuid}_{self.exposure_sequence}_wavelength_calibration_Qp.npy"), coefficients_qp)
+
+        # Convert the input image pixel values to wavelengths values using the coefficients
+        def calculate_wavelengths(coeff, x, y):
+            coeff_fit = np.array([np.polyval(c, y) for c in coeff]).T
+            wavelengths = np.array([np.polyval(c_fit, x) for c_fit in coeff_fit])
+            return wavelengths
+
+        wavelengths_qp = calculate_wavelengths(coefficients_qp, x, yp)
+        wavelengths_qm = calculate_wavelengths(coefficients_qm, x, ym)
+
+        if self.output_plots:
+            self.plot_fluorescent_lines_double(qx_y_grids=[yp, ym],
+                                            qx_line_positions=[lines_qp, lines_qm],
+                                            qx_line_fits=[lines_fit_qp, lines_fit_qm],
+                                            qx_offsets=[self.start_qp, self.start_qm])
+
+            #plot the lines, the fit and the dispersion and save to file
+            self.plot_fluorescent_lines_dispersion([yp, ym],
+                                                   [lines_qp, lines_qm],
+                                                   [lines_fit_qp, lines_fit_qm],
+                                                   [self.start_qp, self.start_qm],
+                                                   [dispersion_qp, dispersion_qm])
+
+    def find_areas(self):
+        """
+        Find the slit and projected areas in the image
+        """
+        self.log = logging.getLogger('ispex.image.process.find_areas')
+        cut_tolerance = 0.05  # fraction of max value in projected areas used to slice the image
+
+        img_raw_sum = np.nansum(self.img_raw_RGB, axis=2)
+        img_raw_sum_1d = img_raw_sum.flatten().reshape(-1, 1)
+
+        # Use KMeans clustering (2 clusters) to find and mask slit
+        # Slit area should be 1-2 orders of magnitude brighter than projected spectral area so should separate easily
+        kmeans = KMeans(n_clusters=2, random_state=0).fit(img_raw_sum_1d)
+        self.slit_area_mask = kmeans.labels_.reshape(img_raw_sum.shape)
+
+        # Cluster the remainder of the image again to find the projected area
+        # Ignore slit area by cutting the image with a 20% buffer or no less than half the image length
+        buffer_width = int(img_raw_sum.shape[1] * 0.2)  # 20% buffer of image length
+        max_index = np.max(np.where(self.slit_area_mask == 1)[1]) + buffer_width
+        cut_index = int(np.max([max_index, img_raw_sum.shape[1]*0.5]))
+        img_raw_sum_bottom_half = img_raw_sum[:, cut_index:]
+        img_raw_sum_bottom_half_1d = img_raw_sum_bottom_half.flatten().reshape(-1, 1)
+
+        # the number of bright clusters to expect in the projected image is not known.
+        # 2+ clusters are required to separate the projected area from the background.
+        # More clusters can help to avoid losing information in the fading edges of the spectrum.
+        # Too many clusters risk capturing reflections and stray light.
+        # Iterate from 7 to 2 clusters, stopping when a valid projected area is found.
+        for n_clusters in range(7, 1, -1):
+            overexposed = False
+            kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(img_raw_sum_bottom_half_1d)
+            labels = kmeans.labels_.reshape(img_raw_sum_bottom_half.shape)
+            self.projected_area_mask = np.zeros_like(self.slit_area_mask)
+            self.projected_area_mask[:, cut_index:] = labels
+
+            # self.imshowthis(self.projected_area_mask, label=f'projected_area_mask_{n_clusters}.png')  # debug only
+
+            # aggregate the image along the slit dimension to find the two projected sections
+            img_raw_sum_along_slit = img_raw_sum.copy()
+            img_raw_sum_along_slit[self.projected_area_mask == 0] = 0
+            img_raw_sum_along_slit[self.projected_area_mask > 0] = 1
+            img_raw_sum_along_slit = np.nansum(img_raw_sum_along_slit, axis=1)
+            # cumulative sum along the slit dimension
+            img_raw_sum_along_slit_cumsum = np.cumsum(img_raw_sum_along_slit)
+
+            #plt.plot(img_raw_sum_along_slit_cumsum)
+            #plt.savefig(os.path.join(self.save_path, f'img_raw_sum_along_slit_cumsum_{n_clusters}.png'))
+            #plt.close()
+
+            # top and bottom edges of the projected area k-means cluster 
+            self.top_qx = np.argwhere(np.nansum(self.projected_area_mask, axis = 0) > 0)[0][0]
+            self.bottom_qx = np.argwhere(np.nansum(self.projected_area_mask, axis = 0) > 0)[-1][0]
+            
+            # First quality test
+            if (self.top_qx <= cut_index + cut_index * cut_tolerance) or \
+                    (self.bottom_qx >= img_raw_sum.shape[1] - (img_raw_sum.shape[1] * cut_tolerance)):
+                overexposed = True
+
+            # Second quality test
+            # Count the number of pixels masked by the projected_area_mask
+            masked_pixel_count = np.sum(self.projected_area_mask > 0)
+            # If the number of pixels is too large, try again with fewer clusters
+            if masked_pixel_count > 0.5 * img_raw_sum_bottom_half.shape[0] * img_raw_sum_bottom_half.shape[1]:
+                overexposed = True
+
+            if overexposed and n_clusters == 2:
+                self.log.error("Image is overexposed")
+                self.check_areas = False
+                raise ValueError("Image is overexposed, cannot process further.")
+            elif overexposed:
+                self.log.info(f"Lowering sensitivity from {n_clusters} to {n_clusters - 1} clusters") 
+            continue
+
+        try: 
+            # Find edges along the slit dimension
+            cut_in = cut_tolerance
+            cut_off = 1.0 - cut_tolerance
+            # define the start of qp and end of qm from the cutting range of the cumulative sum
+            maxsum = np.max(img_raw_sum_along_slit_cumsum)
+            self.start_qp = np.where(img_raw_sum_along_slit_cumsum > cut_in*maxsum)[0][0]
+            self.end_qm = np.where(img_raw_sum_along_slit_cumsum < cut_off*maxsum)[0][-1]
+
+            # define the middle plateau (between qm and qp projections) as value where diff is lowest
+            mid_plateau_start_index = self.start_qp + np.argmin(np.diff(img_raw_sum_along_slit_cumsum[self.start_qp:self.end_qm]))
+            mid_plateau_start_value = img_raw_sum_along_slit_cumsum[mid_plateau_start_index]
+
+            # define the end of qp where the plateau value is reached within set % of max sum
+            self.end_qp = self.start_qp + \
+                        np.where(img_raw_sum_along_slit_cumsum[self.start_qp:]
+                                < (mid_plateau_start_value - (cut_in*maxsum)))[0][-1]
+            # define the start of qm where the plateau value is exceeded by  set % of max sum
+            self.start_qm = mid_plateau_start_index + \
+                        np.where(img_raw_sum_along_slit_cumsum[mid_plateau_start_index:] 
+                                > (mid_plateau_start_value + (cut_in*maxsum)))[0][0]
+
+            self.check_areas = True
+            assert self.start_qp < self.start_qm
+            assert self.end_qm > self.start_qm
+            assert self.end_qp > self.start_qp
+            assert self.bottom_qx > self.top_qx
+
+        except IndexError:
+            self.log.error("Error finding projected areas (areas are invalid)")
+            self.check_areas = False
+        except AssertionError:
+            self.log.error("Error finding projected areas (areas are too small)")
+            self.check_areas = False
+        except Exception:
+            self.check_areas = False
+            raise
+
+    def imshowthis(self, image, label='tmp.png'):
+        if image.ndim == 3:
+            # normalise image to 0-1 range
+            image = (image - np.min(image)) / (np.max(image) - np.min(image))
+        plt.clf()
+        plt.imshow(image)
+        plt.colorbar()
+        plt.savefig(os.path.join('.', label))
+        plt.close()
+
+    def background_solver(self):
+        """
+        Solve for the background noise level by interpolating across the RGB image layers.
+        """
+        # find image index halfway between slit and projected area
+        try:
+            end_of_slit_y = np.argwhere(self.slit_area_mask > 0)[-1][-1]
+            start_of_proj_y = np.argwhere(self.projected_area_mask > 0)[-1][0]
+            end_of_proj_y = np.argwhere(self.projected_area_mask > 0)[-1][-1]
+            assert end_of_slit_y < start_of_proj_y
+            assert end_of_proj_y > start_of_proj_y
+            assert end_of_proj_y < self.img_raw_RGB.shape[1]
+            background_slice_start = end_of_slit_y + (start_of_proj_y - end_of_slit_y) // 2
+        except AssertionError:
+            raise(Exception("Error finding background area (areas are invalid)"))
+
+        # initialise the output background image
+        self.background = np.zeros_like(self.img_raw_RGB)
+
+        # create a slice of the image to be used for background noise level interpolation
+        background_slice = self.img_raw_RGB.copy()
+        # self.imshowthis(background_slice, label=f'background_slice_input_RGB.png')
+
+        # # mask the projected areas with 20% buffer
+        # mask the projected area as one large symmetrical rectangle based on buffered projection bounds
+        # define symmetrical bounds for the projected area
+        long_edge_to_proj = np.min([self.start_qp, self.img_raw_RGB.shape[0] - self.end_qm])
+        slice_x_start = int(long_edge_to_proj * 0.8)
+        slice_x_end = int(self.img_raw_RGB.shape[0] - slice_x_start)
+        slice_y_start = int(start_of_proj_y * 0.8)
+        slice_y_end = int(end_of_proj_y * 1.2)
+        try:
+            assert slice_x_end < self.img_raw_RGB.shape[0]
+            assert slice_y_end < self.img_raw_RGB.shape[1]
+        except AssertionError:
+            raise(Exception("Error finding projected areas (buffered area bounds exceed image bounds)"))
+        background_slice[slice_x_start:slice_x_end, slice_y_start:slice_y_end, :] = np.nan
+        # mask out the slit area
+        background_slice[:, :background_slice_start, :] = np.nan
+
+        # self.imshowthis(background_slice[...,0], label=f'background_slice_masked_R.png')
+        # self.imshowthis(background_slice[...,1], label=f'background_slice_masked_G.png')
+        # self.imshowthis(background_slice[...,2], label=f'background_slice_masked_B.png')
+
+        uncertainty_background_2sigma = {}
+
+        for i, layername in enumerate(['R', 'G', 'B']):
+            layer = background_slice[...,i]
+            # self.imshowthis(background_slice, label=f'background_slice_{layername}.png')  # debug only
+
+            if np.isnan(layer).all():
+                continue
+
+            X = np.array(np.meshgrid(np.arange(layer.shape[0]),
+                                     np.arange(layer.shape[1]))).T.reshape(-1, 2)
+            y = layer.flatten()
+            mask = ~np.isnan(y)
+            X = X[mask]
+            y = y[mask]
+            if len(y) == 0:
+                continue
+
+            self.log.info(f"Interpolating background noise level for layer {i}")
+            regressor = HistGradientBoostingRegressor()
+            regressor.fit(X, y)
+            # background_slice[i] = regressor.predict(np.arange(layer.shape[0]).reshape(-1, 1))
+
+            background_pred = regressor.predict(np.array(np.meshgrid(np.arange(layer.shape[0]),
+                                                                     np.arange(layer.shape[1]))).T.reshape(-1, 2))
+            layer_interpolated = background_pred.reshape(layer.shape)
+
+            # calculate the background correction and uncertainty over the qm and qp slice areas (low estimate as includes low signal areas)
+            layer_interp_qm = layer_interpolated[int(self.start_qm):int(self.end_qm), int(self.top_qx):int(self.bottom_qx)]
+            layer_interp_qp = layer_interpolated[int(self.start_qp):int(self.end_qp), int(self.top_qx):int(self.bottom_qx)]
+            layer_original_qm = self.img_raw_RGB[int(self.start_qm):int(self.end_qm), int(self.top_qx):int(self.bottom_qx), i]
+            layer_original_qp = self.img_raw_RGB[int(self.start_qp):int(self.end_qp), int(self.top_qx):int(self.bottom_qx), i]
+            layer_interp_qx = np.concat([layer_interp_qm, layer_interp_qp], axis=0)
+            layer_original_qx = np.concat([layer_original_qm, layer_original_qp], axis=0)
+
+            # define the uncertainty as 2x the standard deviation of the difference between original and interpolated values
+            self.background_uncertainty_qp = np.nanstd(layer_interp_qx - layer_original_qx) * 2.0
+            self.background_uncertainty_qm = np.nanstd(layer_interp_qm - layer_original_qm) * 2.0
+            self.background_uncertainty_relative_qp = ((np.nanstd(layer_interp_qx - layer_original_qx))/np.nanmean(layer_original_qx)) * 200.0
+            self.background_uncertainty_relative_qm = ((np.nanstd(layer_interp_qm - layer_original_qm))/np.nanmean(layer_original_qm)) * 200.0
+            self.log.info(f"Uncertainty background 2 sigma for layer {i} qp:\
+                           {self.background_uncertainty_qp} ({self.background_uncertainty_relative_qp:2.2f} %)")
+            self.log.info(f"Uncertainty background 2 sigma for layer {i} qm:\
+                           {self.background_uncertainty_qm} ({self.background_uncertainty_relative_qm:2.2f} %)")
+
+            # Replace the NaN values in the original background_slice with the interpolated values
+            layer[np.isnan(layer)] = layer_interpolated[np.isnan(layer)]
+            self.background[...,i] = layer
+
+            # self.imshowthis(layer, label=f"background_interp_{layername}.png")  # Debug only
+
+    def plot_bounding_areas(self):
+        """
+        Plot the spectrum bounding boxes on top of the post-processed (RGB) raw image.
+        """
+        # normalise raw to RGB, boost values
+        norm_RGB = self._raw2RGB(normalise=True)
+        plt.imshow(norm_RGB)
+        plt.contour(self.slit_area_mask, levels=[0.1], colors='magenta', linewidths=1.5)
+        plt.contour(self.projected_area_mask, levels=[0.1], colors='magenta', linewidths=0.5)
+
+        plt.axhspan(self.start_qm, self.end_qm, facecolor="white", edgecolor="red", alpha=0.1, ls="--")
+        plt.axhspan(self.start_qp, self.end_qp, facecolor="white", edgecolor="red", alpha=0.1, ls="--")
+        plt.axvspan(self.top_qx, self.bottom_qx, facecolor="white", edgecolor="red", alpha=0.1, ls="--")
+
+        plt.title(f"Bounding areas\n{self.label}")
+        plt.text(s = "k-means clustering of slit and projected areas",
+                 x = self.slit_area_mask.shape[1]*0.05,
+                 y = self.slit_area_mask.shape[0]*0.90, color="magenta")
+        plt.text(s = "White level boosted 50%, dark pixel subtracted",
+                 x = self.slit_area_mask.shape[1]*0.05,
+                 y = self.slit_area_mask.shape[0]*0.95, color="white")
+
+        plt.text(s = 'Qm', x = self.bottom_qx * 1.02, y = self.start_qm + ((self.end_qm - self.start_qm) /2), color="red")
+        plt.text(s = 'Qp', x = self.bottom_qx * 1.02, y = self.start_qp + ((self.end_qp - self.start_qp) /2), color="red")
+
+        plt.savefig(os.path.join(self.save_path, f"{self.label}_RGB_bounding_areas.png"), bbox_inches="tight")
+        plt.close()
+
+    def plot_background_correction(self):
+        """
+        Plot the background correction for each layer
+        """
+        for i, layername in enumerate(['R', 'G', 'B']):
+            signal = self.img_raw_RGB[...,i]
+            peak_signal = np.nanmax(signal[self.projected_area_mask>0])
+            relative_bg_correction = self.background[..., i]
+            relative_bg_correction[self.projected_area_mask > 0] /= peak_signal
+            relative_bg_correction[self.projected_area_mask == 0] = np.nan
+            signal[self.projected_area_mask>0] = np.nan
+
+            rel_bg_corr_mean = 100.0 * np.nanmean(relative_bg_correction)
+            rel_bg_corr_std =  100.0 * np.nanstd(relative_bg_correction)
+            plt.imshow(relative_bg_correction, cmap='coolwarm', vmin=0, vmax = rel_bg_corr_mean + 2*rel_bg_corr_std)
+            plt.colorbar()
+            plt.imshow(signal, cmap='grey', vmin=0)
+            plt.contour(self.projected_area_mask>0, levels=[0.1], colors='black', linewidths=0.5)
+            plt.text(s=f"{layername} background correction\n {rel_bg_corr_mean:2.2f} +/- {rel_bg_corr_std:2.2f} %",
+                    x=self.background.shape[1]*0.05, y=self.background.shape[0]*0.95, color="white")
+            plt.savefig(os.path.join(self.save_path, f"{self.label}_background_{layername}.png"), bbox_inches="tight")
+            plt.close()
+
+    def plot_spectra(self):
+        """
+        Plot radiance spectra in arbitrary units
+        """
+        # Spectrum plot
+        plt.rcParams.update({'font.size': 14, 'axes.labelsize': 14})
+        plt.figure(figsize=(10, 4))  # Wider figure
+
+        # Use a loop to plot each spectrum with a thicker line for visibility
+        for j, color in zip(range(1, 4), ['red', 'green', 'blue']):  # Explicit color names for clarity
+            plt.plot(self.spectra_calibrated_qp[:,0], self.spectra_calibrated_qp[:,j]+self.spectra_calibrated_qm[:,j], c=color, linewidth=2)  # Thicker lines
+            plt.plot(self.spectra_calibrated_qm[:,0], self.spectra_calibrated_qm[:,j], c=color, linewidth=2, linestyle='--')  # Thicker lines
+            plt.plot(self.spectra_calibrated_qp[:,0], self.spectra_calibrated_qp[:,j], c=color, linewidth=2, linestyle=':')  # Thicker lines
+
+        plt.legend(["Red", "Green", "Blue",
+                    "Red_Qm", "Green_Qm", "Blue_Qm",
+                    "Red_Qp", "Green_Qp", "Blue_Qp"], loc='upper right', fontsize=10)
+        plt.xlabel("Wavelength [nm]", fontsize=14, fontweight='bold')
+        plt.ylabel("Intensity [a.u.]", fontsize=14, fontweight='bold')
+        plt.grid(color='grey', linestyle='--', linewidth=0.5, alpha=0.7)
+        qpmax = np.nanmax(self.spectra_calibrated_qp[:,1:])
+        qmmax = np.nanmax(self.spectra_calibrated_qm[:,1:])
+        plt.ylim(0, 1.1*(qpmax+qmmax))  # 10% more space above the max value
+        plt.xlim(350, 700)
+        plt.savefig(os.path.join(self.save_path, f"{self.label}_spectrum.png"), bbox_inches="tight", dpi=300)
+        plt.close()
+
+    def plot_fluorescent_lines(self, y, lines, lines_fit, qx):
+        plt.figure(figsize=(7, 4))
+
+        # Colour-blind friendly RGB colours, adapted from Okabe-Ito
+        RGB_OkabeIto = [[213/255, 94/255,  0],
+                        [0,       158/255, 115/255],
+                        [0/255,   114/255, 178/255]]
+
+        p_eff = [pe.Stroke(linewidth=5, foreground='k'), pe.Normal()]
+        for j, c in enumerate(RGB_OkabeIto):
+            plt.scatter(lines[:,j], y, s=25, color=c, alpha=0.8)
+            plt.plot(lines_fit[:,j], y, color=c, path_effects=p_eff)
+
+        plt.title("Locations of RGB maxima")
+        plt.xlabel("Line centre") # x
+        plt.ylabel("Row along spectrum") # y
+        plt.axis("tight")
+        plt.grid(ls="--")
+
+        if self.output_plots:
+            plt.savefig(os.path.join(self.save_path, f"{self.label}_fluorescent_lines_fit_{qx}.png"),
+                        dpi=300, bbox_inches="tight")
+        plt.close()
+
+    def plot_fluorescent_lines_double(self,
+                                      qx_y_grids:tuple,
+                                      qx_line_positions:tuple,
+                                      qx_line_fits: tuple,
+                                      qx_offsets:tuple):
+        """
+        Plot the fluorescent lines for both Qp and Qm in one plot
+
+        param qx_y_grids:        tuple of yp and ym, the along-slit pixel grid where the qp and qm projection are found
+        param qx_line_positions: tuple of lines_qp and lines_qm,
+                                 giving the points along the spectrum where the fluorescent lines are found
+        param qx_line_fits:      tuple of lines_fit_qp and lines_fit_qm, the fitted fluorescent lines
+        param qx_offsets:        tuple of start_qp and start_qm, the pixel offset of the Qp and Qm projection
+        """
+        RGB_OkabeIto = [[213/255, 94/255,  0],
+                        [0,       158/255, 115/255],
+                        [0/255,   114/255, 178/255]]
+
+        plt.figure(figsize=(10, 3))
+        p_eff = [pe.Stroke(linewidth=5, foreground='k'), pe.Normal()]
+        for offset, y, lines, lines_fit in zip(qx_offsets, qx_y_grids, qx_line_positions, qx_line_fits):
+            for j, c in enumerate(RGB_OkabeIto):
+                plt.scatter(lines[:,j], y+offset, s=25, color=c, alpha=0.8)
+                plt.plot(lines_fit[:,j], y+offset, color=c, path_effects=p_eff)
+
+        plt.title("Locations of RGB maxima")
+        plt.xlabel("Line centre along spectrum [px]") # x
+        plt.ylabel("Row along slit dimension[px]") # y
+        plt.gca().invert_yaxis()
+        plt.grid(ls="--")
+        if self.output_plots:
+            plt.savefig(os.path.join(self.save_path, f"{self.label}_fluorescent_lines_fit_qx.png"), dpi=300, bbox_inches="tight")
+        plt.close()
+
+    def plot_fluorescent_lines_dispersion(self,
+                                          qx_y_grids:tuple,
+                                          qx_line_positions:tuple,
+                                          qx_line_fits: tuple,
+                                          qx_offsets:tuple,
+                                          qx_dispersions:tuple):
+        """
+        Plot the fluorescent lines for both Qp and Qm in one plot
+
+        param qx_y_grids:        tuple of yp and ym, the along-slit pixel grid where the qp and qm projection are found
+        param qx_line_positions: tuple of lines_qp and lines_qm,
+                                 giving the points along the spectrum where the fluorescent lines are found
+        param qx_line_fits:      tuple of lines_fit_qp and lines_fit_qm, the fitted fluorescent lines
+        param qx_dispersion:     wavelength dispersion of Qp and Qm projection
+        """
+        fig, axs = plt.subplots(ncols=2,
+                                figsize=(10, 3),
+                                gridspec_kw={"width_ratios": (4,1), "hspace": 0, "wspace": 0.05},
+                                sharey=True)
+
+        RGB_OkabeIto = [[213/255, 94/255,  0],
+                        [0,       158/255, 115/255],
+                        [0/255,   114/255, 178/255]]
+
+        p_eff = [pe.Stroke(linewidth=5, foreground='k'), pe.Normal()]
+
+        for offset, y, lines, lines_fit, dispersion in zip(qx_offsets,
+                                                           qx_y_grids,
+                                                           qx_line_positions,
+                                                           qx_line_fits,
+                                                           qx_dispersions):
+            for j, c in enumerate(RGB_OkabeIto):
+                axs[0].scatter(lines[:,j], y+offset, s=25, color=c, alpha=0.8)
+                axs[0].plot(lines_fit[:,j], y+offset, color=c, path_effects=p_eff)
+
+            axs[1].plot(dispersion, y+offset, color='k', lw=5)
+
+        axs[0].set_title("Locations of RGB maxima")
+        axs[0].set_xlabel("Line centre [px]") # x
+        axs[0].set_ylabel("Row along spectrum [px]") # y
+        axs[0].invert_yaxis()
+        axs[1].tick_params(axis="y", left=False)
+        axs[1].set_xlabel("Dispersion [nm/px]")
+        for ax in axs:
+            ax.grid(ls="--")
+
+        if self.output_plots:
+            plt.savefig(os.path.join(self.save_path, f"{self.label}_fluorescent_dispersion_qx.png"), dpi=300, bbox_inches="tight")
+
+        plt.close()
+
+    def _raw2RGB(self, normalise=False):
+        """
+        Combine G channels,
+        Optionally normalise, just for visualisation:
+            lower the white level by 50%
+            subtract dark pixel,
+            Outputs 0-1 scaled RGB stack for imshow
+        """
+        R0 = self.img_raw_RGBG[0]
+        G0 = (self.img_raw_RGBG[1] + self.img_raw_RGBG[3]) / 2.0
+        B0 = self.img_raw_RGBG[2]
+        if normalise:
+            whitelevel = np.max([R0, G0, B0])
+            R0[R0 < (0.5 * whitelevel)] *= 2.0
+            G0[G0 < (0.5 * whitelevel)] *= 2.0
+            B0[B0 < (0.5 * whitelevel)] *= 2.0
+            maxlevel = np.max([R0, G0, B0])
+            minlevel = np.min([R0, G0, B0])
+            R = (R0 - minlevel) / (maxlevel - minlevel)
+            G = (G0 - minlevel) / (maxlevel - minlevel)
+            B = (B0 - minlevel) / (maxlevel - minlevel)
+        else:
+            R = R0
+            G = G0
+            B = B0
+        return np.dstack([R, G, B])
+
+    def _gauss_nan(self, D, sigma=5, **kwargs):
+        """
+        Apply a multidimensional Gaussian kernel, accounting for NaN values.
+        Reference: https://stackoverflow.com/a/36307291/2229219
+        """
+        V = D.copy()
+        V[D!=D] = 0
+        VV = gaussMd(V, sigma=sigma, **kwargs)
+
+        W = 0 * D.copy() + 1
+        W[D!=D] = 0
+        WW = gaussMd(W, sigma=sigma, **kwargs)
+
+        Z=VV/WW
+        return Z
+    
+    def _generate_bayer_slices(self, color_pattern, colours=range(4)):
+        """
+        Generate the slices used to demosaick data.
+        """
+        # Find the positions of the first element corresponding to each colour
+        positions = [np.array(np.where(color_pattern == colour)).T[0] for colour in colours]
+
+        # Make a slice for each colour
+        slices = [np.s_[..., x::2, y::2] for x, y in positions]
+
+        return slices
+
+    def demosaick(self, bayer_map, data, color_desc="RGBG"):
+        """
+        Uses a Bayer map `bayer_map` (RGBG channel for each pixel) and any number
+        of input arrays `data`.
+        """
+        # Cast the data to a numpy array for the following indexing tricks to work
+        data = np.array(data)
+
+        # Check that we are dealing with RGBG2 data, as only these are supported right now.
+        assert color_desc in ("RGBG", b"RGBG"), f"Unknown colour description {color_desc}"
+
+        # Check that the data and Bayer pattern have similar shapes
+        assert data.shape[-2:] == bayer_map.shape, f"The data ({data.shape}) and Bayer map ({bayer_map.shape}) have incompatible shapes"
+
+        # Demosaick the data along their last two axes
+        bayer_pattern = bayer_map[:2, :2]
+        slices = self._generate_bayer_slices(bayer_pattern)
+
+        # Combine the data back into one array of shape [..., 4, x/2, y/2]
+        newshape = list(data.shape[:-2]) + [4, data.shape[-2]//2, data.shape[-1]//2]
+        RGBG = np.empty(newshape)
+        for i, s in enumerate(slices):
+            RGBG[..., i, :, :] = data[s]
+
+        return RGBG
+    
+    def interpolate_multi(self, wavelengths_split, RGB, lambdamin=350, lambdamax=750, lambdastep=1):
+        lambdarange = np.arange(lambdamin, lambdamax+lambdastep, lambdastep)
+        n_bands = self.img_bg_corrected.shape[-1]
+        interpolated = np.zeros((RGB.shape[0], lambdarange.shape[0], n_bands))
+        for b in range(n_bands):
+            interpolated[:,:,b] = [np.interp(lambdarange, wl, vals) for wl, vals in zip(wavelengths_split[:,:], RGB[:,:,b])]
+
+        #all_interpolated = np.moveaxis(all_interpolated, 2, 1)
+        #return lambdarange, all_interpolated
+        return lambdarange, interpolated
+
+    def stack(self, wavelengths, interpolated):
+        """
+        Convert wavelength-calibrated grids to RGB radiance spectra
+        Outputs [WL, R, G, B] array
+        """
+        stacked = interpolated.mean(axis=0)
+        stacked = np.vstack([wavelengths, stacked.T]).T
+        return stacked
+    
+    def _find_cal_peaks(self, data: np.ndarray, threshold: float) -> list[int]:
+        """
+        Find peaks in a 1D array of data points above a certain threshold.
+
+        Parameters:
+        data (np.ndarray): The 1D array of data points.
+        threshold (float): The threshold to identify significant peaks.
+
+        Returns:
+        List[int]: A list of indices where peaks are found.
+        """
+        peaks = []
+        for i in range(1, len(data) - 1):
+            if data[i] > data[i-1] and data[i] > data[i+1] and data[i] > threshold:
+                peaks.append(i)
+        return peaks
+        
+    def _find_fluorescent_lines(self, RGB):
+        RGB_copy = RGB.copy()
+        RGB_copy[np.isnan(RGB_copy)] = -999
+        peaks = np.nanargmax(RGB_copy, axis=1).astype(np.float32)
+        peaks[peaks == 0] = np.nan
+        return peaks
+
+    def _fit_fluorescent_lines(self, lines, y):
+        lines_fit = lines.copy()
+        for j in (0,1,2):  # fit separately for R, G, B
+            # Filter out non-finite and NaN elements
+            idx = np.isfinite(lines[:, j])
+            new_y = y[idx]
+            new_line = lines[:,j][idx]
+
+            # Sigma-clip to filter out elements more than 3-sigma away from the mean
+            new_y = new_y[(np.nanmean(new_line) - 3*np.nanstd(new_line) <= new_line) * (new_line <= np.nanmean(new_line) + 3*np.nanstd(new_line))]
+            new_line = new_line[(np.nanmean(new_line) - 3*np.nanstd(new_line) <= new_line) * (new_line <= np.nanmean(new_line) + 3*np.nanstd(new_line))]
+
+            # Fit a polynomial to the line positions
+            coeff = np.polyfit(new_y,
+                               new_line,
+                               self.constants.degree_of_spectral_line_fit)
+
+            # Evaluate the fitted polynomial on all y positions
+            lines_fit[:, j] = np.polyval(coeff, y)
+        return lines_fit
+    
+    def fit_wavelength_coefficients(self, y, coefficients):
+        coeff_coeff = np.array([np.polyfit(y,
+                                            coefficients[:, i],
+                                            self.constants.degree_of_coefficient_fit)
+                                    for i in range(self.constants.degree_of_wavelength_fit+1)])
+        coeff_fit = np.array([np.polyval(coeff, y) for coeff in coeff_coeff]).T
+        return coeff_coeff, coeff_fit
+
+    def fit_many_wavelength_relations(self, y, lines):
+        coeffarr = np.full((y.shape[0], self.constants.degree_of_wavelength_fit+1), np.nan)
+        for i, col in enumerate(y):
+            coeffarr[i] = np.polyfit(lines[i, :],
+                                        self.constants.fluorescent_lines,
+                                        self.constants.degree_of_wavelength_fit)
+        return coeffarr
+
+    def resolution(self, data_RGB, dispersion):
+        slit = data_RGB[:,:data_RGB.shape[1]//2, 2] # Get the left half of the G image
+        peak_height = np.nanmax(slit, axis=1)
+        FWHMs_px = np.zeros_like(peak_height)
+        for i,row in enumerate(slit):
+            in_slit = np.where(row >= peak_height[i]/2)[0]
+            FWHMs_px[i] = in_slit[-1] - in_slit[0]
+        FWHMs_nm = FWHMs_px * dispersion
+        return FWHMs_nm
