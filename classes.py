@@ -595,8 +595,8 @@ class Ispeximage(object):
             layer_interp_qp = layer_interpolated[int(self.start_qp):int(self.end_qp), int(self.top_qx):int(self.bottom_qx)]
             layer_original_qm = self.img_raw_RGB[int(self.start_qm):int(self.end_qm), int(self.top_qx):int(self.bottom_qx), i]
             layer_original_qp = self.img_raw_RGB[int(self.start_qp):int(self.end_qp), int(self.top_qx):int(self.bottom_qx), i]
-            layer_interp_qx = np.concat([layer_interp_qm, layer_interp_qp], axis=0)
-            layer_original_qx = np.concat([layer_original_qm, layer_original_qp], axis=0)
+            layer_interp_qx = np.concatenate([layer_interp_qm, layer_interp_qp], axis=0)
+            layer_original_qx = np.concatenate([layer_original_qm, layer_original_qp], axis=0)
 
             # define the uncertainty as 2x the standard deviation of the difference between original and interpolated values
             self.background_uncertainty_qp = np.nanstd(layer_interp_qx - layer_original_qx) * 2.0
@@ -972,3 +972,85 @@ class Ispeximage(object):
             FWHMs_px[i] = in_slit[-1] - in_slit[0]
         FWHMs_nm = FWHMs_px * dispersion
         return FWHMs_nm
+    
+    
+class Ispexreflectance(object):
+
+    """
+    An instance of Ispex reflectance class is created for each exposure. The 
+    corresponding water exposure initialzes the metadata for the reflectance 
+    class.
+    
+    The reflectance class contains methods to calculate remote-sensing reflectance,
+    perform quality control, and plot output spectra.
+    
+    """
+    
+    def __init__(self,
+                 water_exp,
+                 save_path_root='example_outputs',
+                 output_plots=False):
+      """
+      Relevant metadata fields are first copied from the water exposure (water_exp)
+      Reflectance-specific fields are then initialized.
+      
+      """
+        
+      self.log = logging.getLogger('ispex.reflectance')
+      self.save_path = os.path.join(save_path_root)
+      self.output_plots = output_plots  
+
+      # datetime_uuid_exposure from the file name
+      self.datetimeuuid = water_exp.datetimeuuid
+      # Rrs == remote-sensing reflectance
+      self.obstype = 'RRS'
+      # E0, E1, E2, E3, or E4 
+      self.exposure_sequence =  water_exp.exposure_sequence 
+      # Date in YYYYMMDD format
+      self.datestr =  water_exp.datestr
+      # Time in HHMM format
+      self.timestr = water_exp.timestr
+      # first 4 digits of the UUID, used to prevent duplication
+      self.uuid = water_exp.uuid
+      # 
+      self.label = (self.obstype + '_' + self.datestr + '_'  +  self.timestr 
+                    + '_' +  self.uuid  + '_' + self.exposure_sequence)
+
+      self.device_model = water_exp.device_model
+      self.dev_model_sanitised = water_exp.dev_model_sanitised
+      
+      # These fields may not be needed for RRS class? Commented out for now 
+      # self.iso =  water_exp.iso
+      # self.min_iso = water_exp.min_iso
+      # self.max_iso = water_exp.max_iso
+      # self.lens_position = water_exp.lens_poistion
+
+      # RRS spectra GPS is referenced to water
+      self.latitude = water_exp.latitude
+      self.longitude = water_exp.longitude
+      # self.elevation = water_exp.elevation  - 
+      # self.azimuth = water_exp.azimuth
+      self.time_utc = water_exp.time_utc
+      
+      # These fields may not be needed for RRS class? Commented out for now 
+      # self.exposure_index = water_exp.exposure_index
+      # self.exposure_mode = water_exp.exposure_mode
+      # self.exposure_time = water_exp.exposure_time
+      # self.exposure_duration = water_exp.exposure_duration
+      # self.min_exposure_duration = water_exp.min_exposure_duration
+      # self.max_exposure_duration = water_exp.max_exposure_duration
+      # self.exposure_target_bias = water_exp.exposure_target_bias
+      # self.exposure_target_offset = water_exp.exposure_target_offset
+
+      # Remote-sensing reflectance fields
+      self.rrs = None # Rrs for intensity (rrs_I)
+      self.rrs_qp = None # Rrs for plus polarization state
+      self.rrs_qm = None # Rrs for minus polarization state
+      
+      # Water-leaving radiance fields
+      self.lw = None # lw for intensity (lw_I)
+      self.lw_qp = None # lw for plus polarization state
+      self.lw_qm = None # lw for minus polarization state
+      
+      self.rho = None # Reflectance factor used in rrs computation 
+      self.card_spectra = None # Grey card spectra used in rrs computation
