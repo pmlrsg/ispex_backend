@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 import logging
 from classes import Ispeximage
+from classes import Ispexreflectance
 import glob
 import os
 import re
@@ -73,8 +74,33 @@ for set in [card_set, water_set, sky_set]:
             except Exception as e:
                 log.error(f"Error processing {set[exposure].dng_path}: {e}")
                 continue
+            
+#  Process rrs and apply quality control
+rrs_set = {'E0': None, 'E1': None, 'E2': None, 'E3': None, 'E4': None}
+for exposure in rrs_set:
+     # Test individual spectra exist before computing rrs
+     if  (hasattr(card_set[exposure], 'spectra_calibrated_qp') + 
+          hasattr(card_set[exposure], 'spectra_calibrated_qm') +
+          hasattr(water_set[exposure],'spectra_calibrated_qp') +
+          hasattr(water_set[exposure],'spectra_calibrated_qm') +
+          hasattr(sky_set[exposure],  'spectra_calibrated_qp') +
+          hasattr(sky_set[exposure],  'spectra_calibrated_qm')) == 6: 
+         
+              log.info(f"Calculating reflectance: {exposure}")
+           
+              # Initialize rrs set  
+              rrs_set[exposure] = Ispexreflectance(water_set[exposure],
+                                                save_path_root = "example_outputs/iSPEX_Set_20250806_0925_3537",
+                                                )
+                
+              # calculate rrs
+              rrs_set[exposure].calc_rrs(card_set[exposure], water_set[exposure], sky_set[exposure])
+              
+              # plot rrs
+              rrs_set[exposure].plot_rrs(rrs_set[exposure])
+              
 
-breakpoint()
-
+     else: 
+             log.info(f"calibrated qp and qm spectra were not present: {exposure}")
 # quality control - which image exposures should be used for Rrs
 # Produce Rrs (using new class in classes.py)
