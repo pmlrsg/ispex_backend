@@ -1055,6 +1055,11 @@ class Ispexreflectance(object):
       self.rho = None # Reflectance factor used in rrs computation 
       self.card_spectra = None # Grey card spectra used in rrs computation
       
+      # QC flags 
+      self.azimuth_flag = False
+      self.elevation_flag = False
+      self.timelimit_flag = False
+      
       
     def calc_rrs(self, card_exp, water_exp, sky_exp, grey_ref=0.18, rho=0.028):
         
@@ -1128,13 +1133,33 @@ class Ispexreflectance(object):
                                 (np.pi/grey_ref)*(card_exp.spectra_calibrated_qm[:,i]))
                                                  
         # replace nan-padding (from division errors) with zeros again    
-        np.nan_to_num(self.lw)
-        np.nan_to_num(self.rrs)
-        np.nan_to_num(self.lw_qp)
-        np.nan_to_num(self.rrs_qp)
-        np.nan_to_num(self.lw_qm)
-        np.nan_to_num(self.rrs_qm)
+        self.lw = np.nan_to_num(self.lw)
+        self.rrs = np.nan_to_num(self.rrs)
+        self.lw_qp = np.nan_to_num(self.lw_qp)
+        self.rrs_qp = np.nan_to_num(self.rrs_qp)
+        self.lw_qm = np.nan_to_num(self.lw_qm)
+        self.rrs_qm = np.nan_to_num(self.rrs_qm)
+
+
+    def QC_rrs(self, card_exp, water_exp, sky_exp):
         
+        """
+        Function which tests for reflectance QC flags - to write.
+        
+        The syntax will be that the flag is raised when the flag variable set to
+        True
+       
+        """
+     
+     # azimuth_flag: test for theta between [90,145] deg, 
+     # azimuth_flag_2: test for theta with tolerance of 135 optimum 
+     # elevation_flag: test for theta within tolernace of elevation targets
+     
+     # timelimit_flag: test that measurement set was completed within a fixed time 
+     # interval (e.g. 60 secs)
+ 
+     # additional flags will be added (e.g. rrs qc metrics, tests for exposure saturation)
+      
           
     def plot_rrs(self, rrs_exp):
         
