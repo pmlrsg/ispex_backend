@@ -1054,3 +1054,82 @@ class Ispexreflectance(object):
       
       self.rho = None # Reflectance factor used in rrs computation 
       self.card_spectra = None # Grey card spectra used in rrs computation
+      
+      def calc_rrs(self, card_exp, water_exp, sky_exp, grey_ref=0.18, rho=0.028):
+          
+          """
+          Calculates water-leaving radiance andreflectance for each exposure 
+          setting for intensity and each polarization state
+          
+          Inputs:
+              
+          card_exp, water_exp, sky_exp: processed images for a given exposure
+          grey_ref: grey card reflectance - default constant for now 
+          rho: Fresnel relfectace factor - default constant for now
+          
+          Outputs to reflectance class:
+              
+          lw: water-leaving radiance for intensity 
+          lw_p:water-leaving radiance for plus polarization state
+          lw_m: water-leaving radiance for minus polarization state
+          
+          rrs: reflectance for intensity 
+          rrs_p: reflectance for plus polarization state
+          rrs_m: reflectance for minus polarization state
+          """
+      
+          # number of wl bins and spectral bands in the rrs computations 
+          wl = card_exp.spectra_calibrated_qm.T[0]
+          n_wl = len(wl)
+          n_bands = len(card_exp.spectra_calibrated_qm.T) - 1 # should be 3
+          
+          # mask for rrs wl bins - boolean mask for non-zero elements 
+          # could be useful later on, but not needed now
+          # mask_wl = np.logical_and(card_exp.spectra_calibrated_qm.T[1] != 0, 
+                   #                     water_exp.spectra_calibrated_qm.T[1] != 0,
+                   #                    sky_exp.spectra_calibrated_qm.T[1] != 0) 
+                  
+          # initialize data matrices: zero is used for padding digits as that 
+          # follows image class
+          self.lw = np.zeros([n_wl, n_bands + 1])
+          self.lw[:,0] = wl
+          self.lw_qp = np.zeros([n_wl, n_bands + 1])
+          self.lw_qp[:,0] = wl
+          self.lw_qm = np.zeros([n_wl, n_bands + 1])
+          self.lw_qp[:,0] = wl
+          
+          self.rrs = np.zeros([n_wl, n_bands + 1])
+          self.rrs[:,0] = wl
+          self.rrs_qp = np.zeros([n_wl, n_bands + 1])
+          self.rrs_qp[:,0] = wl
+          self.rrs_qm = np.zeros([n_wl, n_bands + 1])
+          self.rrs_qm[:,0] = wl
+
+          # compute lw and rrs
+          for i in range(1, n_bands + 1):
+     
+              # intensity
+              self.lw[:,i] = ((water_exp.spectra_calibrated_qp[:,i] + water_exp.spectra_calibrated_qm[:,i]) 
+                              - rho*(sky_exp.spectra_calibrated_qp[:,i] + sky_exp.spectra_calibrated_qm[:,i]))       
+              self.rrs[:,i] = np.divide(self.lw[:,i], 
+                              (np.pi/grey_ref)*(card_exp.spectra_calibrated_qp[:,i] + card_exp.spectra_calibrated_qm[:,i]))
+      
+              # plus polarization mode
+              self.lw_qp[:,i] =  (water_exp.spectra_calibrated_qp[:, i] 
+                                - rho*sky_exp.spectra_calibrated_qp[:,i])
+              self.rrs_qp[:,i] =  np.divide(self.lw_qp[:,i], 
+                                  (np.pi/grey_ref)*(card_exp.spectra_calibrated_qp[:,i]))
+                                                   
+              # minus polarization mode
+              self.lw_qm[:,i] =  (water_exp.spectra_calibrated_qm[:, i] 
+                                - rho*sky_exp.spectra_calibrated_qm[:,i])
+              self.rrs_qm[:,i] =  np.divide(self.lw_qm[:,i], 
+                                  (np.pi/grey_ref)*(card_exp.spectra_calibrated_qm[:,i]))
+                                                   
+          # replace nan-padding (from division errors) with zeros again    
+          np.nan_to_num(self.lw)
+          np.nan_to_num(self.rrs)
+          np.nan_to_num(self.lw_qp)
+          np.nan_to_num(self.rrs_qp)
+          np.nan_to_num(self.lw_qm)
+          np.nan_to_num(self.rrs_qm)
