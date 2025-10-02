@@ -1055,10 +1055,11 @@ class Ispexreflectance(object):
       self.rho = None # Reflectance factor used in rrs computation 
       self.card_spectra = None # Grey card spectra used in rrs computation
       
+      
       def calc_rrs(self, card_exp, water_exp, sky_exp, grey_ref=0.18, rho=0.028):
           
           """
-          Calculates water-leaving radiance andreflectance for each exposure 
+          Calculates water-leaving radiance and reflectance for each exposure 
           setting for intensity and each polarization state
           
           Inputs:
@@ -1133,3 +1134,85 @@ class Ispexreflectance(object):
           np.nan_to_num(self.rrs_qp)
           np.nan_to_num(self.lw_qm)
           np.nan_to_num(self.rrs_qm)
+          
+          
+    def plot_rrs(self, rrs_exp):
+        
+       """
+       
+       Basic plot function for rrs, rrs_p and rrs_m. 
+       
+       The RGB spectral channels require masking. For now this has been hardcoded, 
+       but other options should be explored (e.g. based on phone SRF functions, 
+       or spectral regions where water signal is highest)
+     
+       """
+       # Masks for spectral channels in rrs plots - these are hardcoded for now
+       mask_R = np.zeros(401) # `Red mask'
+       mask_R[250:331] = 1
+       
+       mask_G = np.zeros(401) # `Green mask'
+       mask_G[140:261] = 1
+       
+       mask_B = np.zeros(401) # `Blue mask'
+       mask_B[60:151] = 1
+
+       mask = [mask_R, mask_G, mask_B]
+       # Alternative masks - tests for wl bins where each bands'
+       # water signal is highest
+       # mask_1 = np.logical_and((water_exp.spectra_calibrated_qp[:,1] + 
+                            #   water_exp.spectra_calibrated_qm[:,1]) >
+                            #   (water_exp.spectra_calibrated_qp[:,2] + 
+                            #    water_exp.spectra_calibrated_qm[:,2]),
+                            #   (water_exp.spectra_calibrated_qp[:,1] + 
+                            #    water_exp.spectra_calibrated_qm[:,1]) >
+                            #   (water_exp.spectra_calibrated_qp[:,3] + 
+                            #    water_exp.spectra_calibrated_qm[:,3]))
+
+       # mask_2 = np.logical_and((water_exp.spectra_calibrated_qp[:,2] + 
+                         #      water_exp.spectra_calibrated_qm[:,2]) >
+                             #  (water_exp.spectra_calibrated_qp[:,1] + 
+                              #  water_exp.spectra_calibrated_qm[:,1]),
+                             #  (water_exp.spectra_calibrated_qp[:,2] + 
+                             #   water_exp.spectra_calibrated_qm[:,2]) >
+                              # (water_exp.spectra_calibrated_qp[:,3] + 
+                              #  water_exp.spectra_calibrated_qm[:,3]))
+     
+       # mask_3 = np.logical_and((water_exp.spectra_calibrated_qp[:,3] + 
+       #                         water_exp.spectra_calibrated_qm[:,3]) >
+       #                        (water_exp.spectra_calibrated_qp[:,1] + 
+       #                        water_exp.spectra_calibrated_qm[:,1]),
+       #                       (water_exp.spectra_calibrated_qp[:,3] + 
+       #                       water_exp.spectra_calibrated_qm[:,3]) >
+       #                       (water_exp.spectra_calibrated_qp[:,2] + 
+       #                       water_exp.spectra_calibrated_qm[:,2]))
+     
+       # spectral plot for rrs 
+       plt.figure(figsize=(10, 4))  
+       wl = rrs_exp.rrs[:,0]
+       plt.rcParams.update({'font.size': 14, 'axes.labelsize': 14})
+       colors = ['red', 'green', 'blue']
+    
+       for j in range(1, 4): # loop over bands
+       
+           plt.plot(wl[mask[j-1] == True], rrs_exp.rrs[:,j][mask[j-1]==True], 
+                    c = colors[j-1], linewidth=2) # rrs_I
+           plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qp[:,j][mask[j-1]==True], 
+                    c = colors[j-1], linewidth=2, linestyle='--')  # rrs_qp
+           plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qm[:,j][mask[j-1]==True], 
+                    c = colors[j-1], linewidth=2, linestyle=':')   # rrs_qm
+               
+       plt.legend(["R: I", "R: Qm", "R: Qp",
+                   "G: I", "G: Qm", "G: Qp",
+                   "B: I", "B: Qp", "B: Qm"], loc=2, fontsize=10)
+       plt.xlabel("Wavelength [nm]", fontsize=14, fontweight='bold')
+       plt.ylabel("R$_{rs}$ [sr$^{-1}$]", fontsize=14, fontweight='bold')
+       plt.ylim(0,0.015) # hardcoded - make this dynamic if desired    
+       plt.xlim(370,700)
+       
+       plt.savefig(os.path.join(rrs_exp.save_path, f"{
+                   rrs_exp.label}_rrs.png"), bbox_inches="tight", dpi=300)
+       plt.close()
+                          
+       
+
