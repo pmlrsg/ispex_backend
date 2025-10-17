@@ -1164,7 +1164,6 @@ class Ispexreflectance(object):
     def plot_rrs(self, rrs_exp):
         
        """
-       
        Basic plot function for rrs, rrs_p and rrs_m. 
        
        The RGB spectral channels require masking. For now this has been hardcoded, 
@@ -1195,9 +1194,9 @@ class Ispexreflectance(object):
                             #    water_exp.spectra_calibrated_qm[:,3]))
     
        # mask_2 = np.logical_and((water_exp.spectra_calibrated_qp[:,2] + 
-                         #      water_exp.spectra_calibrated_qm[:,2]) >
-                             #  (water_exp.spectra_calibrated_qp[:,1] + 
-                              #  water_exp.spectra_calibrated_qm[:,1]),
+                            #      water_exp.spectra_calibrated_qm[:,2]) >
+                            #  (water_exp.spectra_calibrated_qp[:,1] + 
+                            #  water_exp.spectra_calibrated_qm[:,1]),
                              #  (water_exp.spectra_calibrated_qp[:,2] + 
                              #   water_exp.spectra_calibrated_qm[:,2]) >
                               # (water_exp.spectra_calibrated_qp[:,3] + 
@@ -1220,11 +1219,11 @@ class Ispexreflectance(object):
     
        for j in range(1, 4): # loop over bands
        
-           plt.plot(wl[mask[j-1] == True], rrs_exp.rrs[:,j][mask[j-1]==True], 
-                    c = colors[j-1], linewidth=2) # rrs_I
-           plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qp[:,j][mask[j-1]==True], 
+           plt.plot(wl[mask[j-1] == True], rrs_exp.rrs[:,j][mask[j-1] == True], 
+                    c = colors[j-1], linewidth=2)                  # rrs_I
+           plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qp[:,j][mask[j-1] == True], 
                     c = colors[j-1], linewidth=2, linestyle='--')  # rrs_qp
-           plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qm[:,j][mask[j-1]==True], 
+           plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qm[:,j][mask[j-1] == True], 
                     c = colors[j-1], linewidth=2, linestyle=':')   # rrs_qm
                
        plt.legend(["R: I", "R: Qm", "R: Qp",

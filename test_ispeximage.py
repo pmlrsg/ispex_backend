@@ -6,11 +6,13 @@ import glob
 import os
 import re
 
+from quality_control import linearity_check
+
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('ispex')
 
 # where are the images stored
-img_path = os.path.abspath("example_data/iSPEX_Set_20250806_0925_3537")
+img_path = os.path.abspath("example_data/iSPEX_Set_20251001_1524_0770")
 save_path = os.path.abspath(os.path.join("example_outputs", os.path.basename(img_path)))
 
 if not os.path.isdir(save_path):
@@ -44,20 +46,21 @@ for impath in images:
     if obstype == 'C':
         card_set[exposure] = Ispeximage(dng_path=impath,
                                         type='observation',
-                                        save_path_root='example_outputs/iSPEX_Set_20250806_0925_3537',
+                                        save_path_root='example_outputs/iSPEX_Set_20251001_1524_0770',
                                         calibration_set='cameras/iPhone14_4/20250813_1501_59E5_E2')
     elif obstype == 'W':
         water_set[exposure] = Ispeximage(dng_path=impath,
                                          type='observation',
-                                         save_path_root='example_outputs/iSPEX_Set_20250806_0925_3537',
+                                         save_path_root='example_outputs/iSPEX_Set_20251001_1524_0770',
                                         calibration_set='cameras/iPhone14_4/20250813_1501_59E5_E2')
     elif obstype == 'S':
         sky_set[exposure] = Ispeximage(dng_path=impath,
                                        type='observation',
-                                       save_path_root='example_outputs/iSPEX_Set_20250806_0925_3537',
+                                       save_path_root='example_outputs/iSPEX_Set_20251001_1524_0770',
                                         calibration_set='cameras/iPhone14_4/20250813_1501_59E5_E2')
     else:
         log.warning(f"Unknown observation type {obstype} in file {impath}")
+
 
 # Process each set
 for set in [card_set, water_set, sky_set]:
@@ -74,10 +77,16 @@ for set in [card_set, water_set, sky_set]:
             except Exception as e:
                 log.error(f"Error processing {set[exposure].dng_path}: {e}")
                 continue
-            
-#  Process rrs and apply quality control
+
+# Test for intensity linearity as a function of exposure time
+for set in [card_set, water_set, sky_set]:
+    linearity_check(set)
+
+
+# calculate reflectances                
 rrs_set = {'E0': None, 'E1': None, 'E2': None, 'E3': None, 'E4': None}
 for exposure in rrs_set:
+    
      # Test individual spectra exist before computing rrs
      if  (hasattr(card_set[exposure], 'spectra_calibrated_qp') + 
           hasattr(card_set[exposure], 'spectra_calibrated_qm') +
@@ -90,7 +99,7 @@ for exposure in rrs_set:
            
               # Initialize rrs set  
               rrs_set[exposure] = Ispexreflectance(water_set[exposure],
-                                                save_path_root = "example_outputs/iSPEX_Set_20250806_0925_3537",
+                                                save_path_root = "example_outputs/iSPEX_Set_20251001_1524_0770",
                                                 )
                 
               # calculate rrs
@@ -102,5 +111,7 @@ for exposure in rrs_set:
 
      else: 
              log.info(f"calibrated qp and qm spectra were not present: {exposure}")
+             
+             
 # quality control - which image exposures should be used for Rrs
 # Produce Rrs (using new class in classes.py)
