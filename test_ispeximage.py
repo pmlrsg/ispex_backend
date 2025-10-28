@@ -78,10 +78,6 @@ for set in [card_set, water_set, sky_set]:
                 log.error(f"Error processing {set[exposure].dng_path}: {e}")
                 continue
 
-# Test for intensity linearity as a function of exposure time
-for set in [card_set, water_set, sky_set]:
-    linearity_check(set)
-
 
 # calculate reflectances                
 rrs_set = {'E0': None, 'E1': None, 'E2': None, 'E3': None, 'E4': None}
@@ -114,4 +110,7 @@ for exposure in rrs_set:
              
              
 # quality control - which image exposures should be used for Rrs
-# Produce Rrs (using new class in classes.py)
+
+# linearity check
+for set in [card_set, water_set, sky_set]:
+    linearity_check(set)

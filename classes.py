@@ -1218,7 +1218,7 @@ class Ispexreflectance(object):
        colors = ['red', 'green', 'blue']
     
        for j in range(1, 4): # loop over bands
-       
+
            plt.plot(wl[mask[j-1] == True], rrs_exp.rrs[:,j][mask[j-1] == True], 
                     c = colors[j-1], linewidth=2)                  # rrs_I
            plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qp[:,j][mask[j-1] == True], 
@@ -1231,12 +1231,13 @@ class Ispexreflectance(object):
                    "B: I", "B: Qp", "B: Qm"], loc=2, fontsize=10)
        plt.xlabel("Wavelength [nm]", fontsize=14, fontweight='bold')
        plt.ylabel("R$_{rs}$ [sr$^{-1}$]", fontsize=14, fontweight='bold')
-       plt.ylim(0,0.015) # hardcoded - make this dynamic if desired    
+       plt.ylim(0,0.012) # hardcoded - make this dynamic if desired    
        plt.xlim(370,700)
        
-       plt.savefig(os.path.join(rrs_exp.save_path, f"{
-                   rrs_exp.label}_rrs.png"), bbox_inches="tight", dpi=300)
+       plt.savefig(os.path.join(rrs_exp.save_path, f'{rrs_exp.label}_rrs.png'), bbox_inches="tight", dpi=300)
        plt.close()
                           
        
 
+
+#plt.savefig(os.path.join(self.save_path, f'img_raw_sum_along_slit_cumsum_{n_clusters}.png'))
