@@ -6,13 +6,15 @@ import glob
 import os
 import re
 
-from quality_control import linearity_check
+# quality control functions
+from quality_control import linearity_qc
+from quality_control import acquistion_qc
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('ispex')
 
 # where are the images stored
-img_path = os.path.abspath("example_data/iSPEX_Set_20251001_1524_0770")
+img_path = os.path.abspath("example_data/iSPEX_Set_20250806_0925_3537")
 save_path = os.path.abspath(os.path.join("example_outputs", os.path.basename(img_path)))
 
 if not os.path.isdir(save_path):
@@ -31,6 +33,7 @@ if len(images) == 0:
 card_set = {'E0': None, 'E1': None, 'E2': None, 'E3': None, 'E4': None}
 water_set = {'E0': None, 'E1': None, 'E2': None, 'E3': None, 'E4': None}
 sky_set = {'E0': None, 'E1': None, 'E2': None, 'E3': None, 'E4': None}
+rrs_set = {'E0': None, 'E1': None, 'E2': None, 'E3': None, 'E4': None}
 
 # Check that file spec conforms to expected pattern and populate the dictionary
 for impath in images:
@@ -80,10 +83,8 @@ for set in [card_set, water_set, sky_set]:
 
 
 # calculate reflectances                
-rrs_set = {'E0': None, 'E1': None, 'E2': None, 'E3': None, 'E4': None}
 for exposure in rrs_set:
-    
-     # Test individual spectra exist before computing rrs
+     # Test set of individual spectra exist before computing rrs
      if  (hasattr(card_set[exposure], 'spectra_calibrated_qp') + 
           hasattr(card_set[exposure], 'spectra_calibrated_qm') +
           hasattr(water_set[exposure],'spectra_calibrated_qp') +
@@ -95,7 +96,7 @@ for exposure in rrs_set:
            
               # Initialize rrs set  
               rrs_set[exposure] = Ispexreflectance(water_set[exposure],
-                                                save_path_root = "example_outputs/iSPEX_Set_20251001_1524_0770",
+                                                save_path_root = "example_outputs/iSPEX_Set_20250806_0925_3537",
                                                 )
                 
               # calculate rrs
@@ -110,7 +111,9 @@ for exposure in rrs_set:
              
              
 # quality control - which image exposures should be used for Rrs
-
-# linearity check
+for exposure in rrs_set:
+    if hasattr(rrs_set[exposure], 'rrs') == 1:
+        acquistion_qc(rrs_set[exposure], card_set[exposure], water_set[exposure], sky_set[exposure])
+        
 for set in [card_set, water_set, sky_set]:
-    linearity_check(set)
+    linearity_qc(set)

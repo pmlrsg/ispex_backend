@@ -1049,11 +1049,15 @@ class Ispexreflectance(object):
       # self.max_iso = water_exp.max_iso
       # self.lens_position = water_exp.lens_poistion
 
-      # RRS spectra GPS is referenced to water
+      # rrs spectra GPS and geometry is referenced to water
       self.latitude = water_exp.latitude
       self.longitude = water_exp.longitude
-      # self.elevation = water_exp.elevation  - 
-      # self.azimuth = water_exp.azimuth
+      
+      self.elevation = water_exp.elevation  
+      self.azimuth = water_exp.azimuth
+      self.true_elevation = water_exp.true_elevation  
+      self.relative_azimuth = water_exp.relative_azimuth
+      
       self.time_utc = water_exp.time_utc
       
       # These fields may not be needed for RRS class? Commented out for now 
@@ -1080,9 +1084,11 @@ class Ispexreflectance(object):
       self.card_spectra = None # Grey card spectra used in rrs computation
       
       # QC flags 
-      self.azimuth_flag = False
-      self.elevation_flag = False
-      self.timelimit_flag = False
+      self.elevation_flag = False  # Tests for optimum (140, 40 deg) elevation
+      self.azimuth135_tol = False # Tests for optimum(135 deg) rel azimuth
+      self.azimuthrange_flag = False # Tests for allowed azimuth range [90,145]
+      self.sequencetime_flag = False # Tests for allowed duration of set
+
       
       
     def calc_rrs(self, card_exp, water_exp, sky_exp, grey_ref=0.18, rho=0.028):
