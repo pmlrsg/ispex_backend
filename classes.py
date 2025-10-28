@@ -11,7 +11,7 @@ import json
 import glob
 import re
 import datetime
-
+import ephem # used to compute relative azimuth 
 
 class Constants(object):
     """
@@ -85,9 +85,9 @@ class Ispeximage(object):
 
         self.latitude = metadata_json.get('latitude', None)
         self.longitude = metadata_json.get('longitude', None)
-        self.elevation = metadata_json.get('elevation', None)
-        self.azimuth = metadata_json.get('azimuth', None)
-
+        self.elevation = metadata_json.get('elevation', None) # this is elevation angle of phone (not sensor)
+        self.azimuth = metadata_json.get('azimuth', None) # this is absolute aziumuth
+        
         self.time_utc = metadata_json.get('time_utc', None)
 
         self.exposure_index = metadata_json.get('exposure_index', None)
@@ -98,6 +98,10 @@ class Ispeximage(object):
         self.max_exposure_duration = metadata_json.get('max_exposure_duration', None)
         self.exposure_target_bias = metadata_json.get('exposure_target_bias', None)
         self.exposure_target_offset = metadata_json.get('exposure_target_offset', None)
+  
+        # Compute true elevation, relative azimuth, solar elevation, solar azimuth
+        self.true_elevation = self.elevation - 17 # 17 deg sensor-phone offset
+        self.solar_elevation, self.solar_azimuth, self.relative_azimuth = self.compute_solar_measurement_angles()
 
         # Quality Control                   
         self.check_areas = False            #  If False, the slit and/or projected areas could not be found
@@ -160,6 +164,26 @@ class Ispeximage(object):
         exposure = match.groupdict()['exposure_seq']  # E0, E1, E2, E3, or E4
         return f"{datestr}_{timestr}_{uuid}_{exposure}", match
         
+    def compute_solar_measurement_angles(self):
+        """
+        Computes solar_elevation, solar_azimuth, relative_azimuth
+        using ephem library
+        """ 
+        
+        # Initialize oberver (input) and sun (output) fields
+        obs = ephem.Observer()
+        sun = ephem.Sun()
+        obs.date = datetime.datetime.fromtimestamp(self.time_utc, tz=datetime.timezone.utc)
+        obs.lat, obs.lon = str(self.latitude), str(self.longitude)
+      
+        # Computute solar 
+        sun.compute(obs)
+        solar_elevation = (sun.alt * 180. / np.pi)
+        solar_azimuth =  (sun.az* 180. / np.pi)
+        relative_azimuth = self.azimuth - solar_azimuth
+        
+        return solar_elevation, solar_azimuth, relative_azimuth
+    
     def find_latest_calibration(self, calibration_set_path=None):
         """
         Return the latest calibration coefficients for the camera.
@@ -1140,26 +1164,6 @@ class Ispexreflectance(object):
         self.lw_qm = np.nan_to_num(self.lw_qm)
         self.rrs_qm = np.nan_to_num(self.rrs_qm)
 
-
-    def QC_rrs(self, card_exp, water_exp, sky_exp):
-        
-        """
-        Function which tests for reflectance QC flags - to write.
-        
-        The syntax will be that the flag is raised when the flag variable set to
-        True
-       
-        """
-     
-     # azimuth_flag: test for theta between [90,145] deg, 
-     # azimuth_flag_2: test for theta with tolerance of 135 optimum 
-     # elevation_flag: test for theta within tolernace of elevation targets
-     
-     # timelimit_flag: test that measurement set was completed within a fixed time 
-     # interval (e.g. 60 secs)
- 
-     # additional flags will be added (e.g. rrs qc metrics, tests for exposure saturation)
-      
           
     def plot_rrs(self, rrs_exp):
         
