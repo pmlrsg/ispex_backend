@@ -109,6 +109,8 @@ def acquistion_qc(rrs_exp, card_exp, water_exp, sky_exp):
     
     (iv) Sequence time flag tests for measurements collected within 1 min
     
+    For now, measurement angles on card are not included in QC
+    
     """
 
     # elevation_40 flag - target angles (140, 40) are constants
@@ -123,7 +125,7 @@ def acquistion_qc(rrs_exp, card_exp, water_exp, sky_exp):
         or abs(abs(sky_exp.relative_azimuth) - 135) > azimuth135_tol): 
         rrs_exp.azimuth135_flag = True
         
-    # azimuth valid range flag
+    # azimuth valid-range flag
     azimuth_max = 145 
     azimuth_min = 90 
     if (abs(abs(water_exp.relative_azimuth)) > azimuth_max
@@ -133,7 +135,7 @@ def acquistion_qc(rrs_exp, card_exp, water_exp, sky_exp):
         rrs_exp.azimuthrange_flag = True
     
     # sequence timing flag
-    max_time_delay = 60 # tests for maximum time delay
+    max_time_delay = 60 # tests for maximum time delay betweem card/sky (seconds)
     card_time = datetime.datetime.fromtimestamp(card_exp.time_utc, tz=datetime.timezone.utc)     
     sky_time = datetime.datetime.fromtimestamp(sky_exp.time_utc, tz=datetime.timezone.utc)     
     if (sky_time - card_time).total_seconds() > max_time_delay:

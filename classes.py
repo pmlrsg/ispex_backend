@@ -1,6 +1,7 @@
 import os
 import numpy as np
 from matplotlib import pyplot as plt, patheffects as pe
+import pandas as pd
 
 import rawpy as rawpy_lib
 from scipy.ndimage import gaussian_filter as gaussMd
@@ -1013,6 +1014,8 @@ class Ispexreflectance(object):
     def __init__(self,
                  water_exp,
                  save_path_root='example_outputs',
+                 gc_spectra_root='greycard_spectra',
+                 gc_file='GreyCard_DDQ_69180226-f0db-43ce-85ab-66f77d5cdd19.csv',
                  output_plots=False):
       """
       Relevant metadata fields are first copied from the water exposure (water_exp)
@@ -1082,6 +1085,8 @@ class Ispexreflectance(object):
       
       self.rho = None # Reflectance factor used in rrs computation 
       self.card_spectra = None # Grey card spectra used in rrs computation
+      self.gc_spectra_root = gc_spectra_root # directory for grey card
+      self.gc_file = 'GreyCard_DDQ_69180226-f0db-43ce-85ab-66f77d5cdd19.csv',
       
       # QC flags 
       self.elevation_flag = False  # Tests for optimum (140, 40 deg) elevation
@@ -1091,7 +1096,7 @@ class Ispexreflectance(object):
 
       
       
-    def calc_rrs(self, card_exp, water_exp, sky_exp, grey_ref=0.18, rho=0.028):
+    def calc_rrs(self, card_exp, water_exp, sky_exp, card_mode ='spectral', rho=0.028):
         
         """
         Calculates water-leaving radiance and reflectance for each exposure 
@@ -1100,13 +1105,13 @@ class Ispexreflectance(object):
         Inputs:
             
         card_exp, water_exp, sky_exp: processed images for a given exposure
-        grey_ref: grey card reflectance - default constant for now 
+        card_mode: `spectral' (measured in lab) or `constant' (0.18)
         rho: Fresnel relfectace factor - default constant for now
         
         Outputs to reflectance class:
             
         lw: water-leaving radiance for intensity 
-        lw_p:water-leaving radiance for plus polarization state
+        lw_p: water-leaving radiance for plus polarization state
         lw_m: water-leaving radiance for minus polarization state
         
         rrs: reflectance for intensity 
@@ -1122,8 +1127,8 @@ class Ispexreflectance(object):
         # mask for rrs wl bins - boolean mask for non-zero elements 
         # could be useful later on, but not needed now
         # mask_wl = np.logical_and(card_exp.spectra_calibrated_qm.T[1] != 0, 
-                 #                     water_exp.spectra_calibrated_qm.T[1] != 0,
-                 #                    sky_exp.spectra_calibrated_qm.T[1] != 0) 
+                 #                 water_exp.spectra_calibrated_qm.T[1] != 0,
+                 #                 sky_exp.spectra_calibrated_qm.T[1] != 0) 
                 
         # initialize data matrices: zero is used for padding digits as that 
         # follows image class
@@ -1141,6 +1146,19 @@ class Ispexreflectance(object):
         self.rrs_qm = np.zeros([n_wl, n_bands + 1])
         self.rrs_qm[:,0] = wl
   
+        # fill in variables and attributes for reflectance compuatation
+        if card_mode == 'constant':
+            grey_ref = 0.18
+        elif card_mode == 'spectral':
+            self.gc_spectra_root    
+            card_data = pd.read_csv(os.path.join(self.gc_spectra_root, self.gc_file[0]), sep='\t')
+            card_wl = card_data.keys()[176:577].astype(float)
+            grey_ref = 0.01*card_data.iloc[0,176:577].values # convert from % to frac
+
+        # add grey_ref and rho to reflectance class
+        self.card_spectra = grey_ref
+        self.rho = rho
+        
         # compute lw and rrs
         for i in range(1, n_bands + 1):
    

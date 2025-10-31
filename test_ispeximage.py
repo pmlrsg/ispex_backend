@@ -30,10 +30,10 @@ if len(images) == 0:
     raise FileNotFoundError(f"No images found in {img_path}")
 
 # dictionary to organise the files
-card_set = {'E0': None, 'E1': None, 'E2': None, 'E3': None, 'E4': None}
+card_set = {'E0': None, 'E1': None,  'E2': None, 'E3': None, 'E4': None}
 water_set = {'E0': None, 'E1': None, 'E2': None, 'E3': None, 'E4': None}
-sky_set = {'E0': None, 'E1': None, 'E2': None, 'E3': None, 'E4': None}
-rrs_set = {'E0': None, 'E1': None, 'E2': None, 'E3': None, 'E4': None}
+sky_set = {'E0': None, 'E1': None,   'E2': None, 'E3': None, 'E4': None}
+rrs_set = {'E0': None, 'E1': None,   'E2': None, 'E3': None, 'E4': None}
 
 # Check that file spec conforms to expected pattern and populate the dictionary
 for impath in images:
@@ -81,16 +81,15 @@ for set in [card_set, water_set, sky_set]:
                 log.error(f"Error processing {set[exposure].dng_path}: {e}")
                 continue
 
-
 # calculate reflectances                
 for exposure in rrs_set:
      # Test set of individual spectra exist before computing rrs
-     if  (hasattr(card_set[exposure], 'spectra_calibrated_qp') + 
-          hasattr(card_set[exposure], 'spectra_calibrated_qm') +
-          hasattr(water_set[exposure],'spectra_calibrated_qp') +
-          hasattr(water_set[exposure],'spectra_calibrated_qm') +
-          hasattr(sky_set[exposure],  'spectra_calibrated_qp') +
-          hasattr(sky_set[exposure],  'spectra_calibrated_qm')) == 6: 
+     if  (hasattr(card_set[exposure],  'spectra_calibrated_qp') + 
+          hasattr(card_set[exposure],  'spectra_calibrated_qm') +
+          hasattr(water_set[exposure], 'spectra_calibrated_qp') +
+          hasattr(water_set[exposure], 'spectra_calibrated_qm') +
+          hasattr(sky_set[exposure],   'spectra_calibrated_qp') +
+          hasattr(sky_set[exposure],   'spectra_calibrated_qm')) == 6: 
          
               log.info(f"Calculating reflectance: {exposure}")
            
@@ -100,7 +99,7 @@ for exposure in rrs_set:
                                                 )
                 
               # calculate rrs
-              rrs_set[exposure].calc_rrs(card_set[exposure], water_set[exposure], sky_set[exposure])
+              rrs_set[exposure].calc_rrs(card_set[exposure], water_set[exposure], sky_set[exposure], card_mode ='spectral')
               
               # plot rrs
               rrs_set[exposure].plot_rrs(rrs_set[exposure])
@@ -111,9 +110,12 @@ for exposure in rrs_set:
              
              
 # quality control - which image exposures should be used for Rrs
+
+# `Acquistion qc' applies on an expsoure-by-exposure basis
 for exposure in rrs_set:
     if hasattr(rrs_set[exposure], 'rrs') == 1:
         acquistion_qc(rrs_set[exposure], card_set[exposure], water_set[exposure], sky_set[exposure])
-        
+
+# `Linearity qc' applies over a set of exposures
 for set in [card_set, water_set, sky_set]:
     linearity_qc(set)
