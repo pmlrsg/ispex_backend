@@ -45,7 +45,7 @@ def linearity_qc(set):
             log.warning(f"Missing image for exposure linearity test: {exposure}")
     
         else:
-            # search for max and argmax of each band and append to lits
+            # search for max and argmax of each band and append to lists
             exposure_times.append(set[exposure].exposure_time)
             qp_max.append(np.max(set[exposure].spectra_calibrated_qp, axis=0)[1:4])
             qp_max_index.append(np.argmax(set[exposure].spectra_calibrated_qp, axis=0)[1:4])
@@ -88,11 +88,14 @@ def linearity_qc(set):
         plt.xlabel('Exposure time [s]')    
         # plt.gca().set_xlim(left=0)
         plt.gca().set_ylim(bottom=0)
-    
-    plt.savefig(os.path.join(set[exposure].save_path, 
-                f'{set[exposure].save_path.split('/')[1]}_LinearityPlot.png'), 
-                bbox_inches="tight")
 
+
+    plt.savefig(os.path.join(set[exposure].save_path, 
+               f'{set[exposure].save_path.split('/')[1]}_{set[exposure].obstype}_LinearityPlot.png'), 
+                bbox_inches="tight", dpi=300)
+                        
+    plt.close()
+    
     return
 
 
