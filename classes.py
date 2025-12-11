@@ -1164,7 +1164,9 @@ class Ispexreflectance(object):
         
         """
         Calculates water-leaving radiance and reflectance for each exposure 
-        setting for intensity and each polarization state
+        setting for intensity and each polarization state. Correlation-corrected
+        water-leaving radiance and reflectance are also provided, and notated 
+        by _corr.
         
         Inputs:
             
@@ -1181,14 +1183,27 @@ class Ispexreflectance(object):
         rrs: reflectance for intensity 
         rrs_p: reflectance for plus polarization state
         rrs_m: reflectance for minus polarization state
+        
+        lw_corr: water-leaving radiance for intensity with correlation correction
+        lw_p_corr: water-leaving radiance for plus polarization state with correlation correction
+        lw_m_corr: water-leaving radiance for minus polarization state with correlation correction
+        
+        rrs_corr: reflectance for intensity with correlation correction
+        rrs_p_corr: reflectance for plus polarization state with correlation correction
+        rrs_m_corr: reflectance for minus polarization state with correlation correction
+        
         """
     
         # number of wl bins and spectral bands in the rrs computations 
-        wl = card_exp.spectra_calibrated_qm.T[0]
-        n_wl = len(wl)
         n_bands = len(card_exp.spectra_calibrated_qm.T) - 1 # should be 3
         
-        # initialize data matrices: zero is used for padding digits
+        wl = card_exp.spectra_calibrated_qm.T[0]
+        n_wl = len(wl)
+ 
+        wl_zoom = card_exp.spectra_calibrated_qm_corr.T[0]
+        n_wl_zoom = len(wl_zoom)
+
+        # initialize data matrices for uncorrected fields: zero is used for padding digits
         self.lw = np.zeros([n_wl, n_bands + 1])
         self.lw[:,0] = wl
         self.lw_qp = np.zeros([n_wl, n_bands + 1])
@@ -1203,20 +1218,36 @@ class Ispexreflectance(object):
         self.rrs_qm = np.zeros([n_wl, n_bands + 1])
         self.rrs_qm[:,0] = wl
   
-        # fill in variables and attributes for reflectance compuatation
+        # initialize data matrices for corrected fields: zero is used for padding digits
+        self.lw_corr = np.zeros([n_wl_zoom, n_bands + 1])
+        self.lw_corr[:,0] = wl_zoom
+        self.lw_qp_corr = np.zeros([n_wl_zoom, n_bands + 1])
+        self.lw_qp_corr[:,0] = wl_zoom
+        self.lw_qm_corr = np.zeros([n_wl_zoom, n_bands + 1])
+        self.lw_qp_corr[:,0] = wl_zoom
+        
+        self.rrs_corr = np.zeros([n_wl_zoom, n_bands + 1])
+        self.rrs_corr[:,0] = wl_zoom
+        self.rrs_qp_corr = np.zeros([n_wl_zoom, n_bands + 1])
+        self.rrs_qp_corr[:,0] = wl_zoom
+        self.rrs_qm_corr = np.zeros([n_wl_zoom, n_bands + 1])
+        self.rrs_qm_corr[:,0] = wl_zoom 
+  
+        # Load grey card reference spectrum and trim to wavelength range of data. 
         if card_mode == 'constant':
             grey_ref = 0.18
         elif card_mode == 'spectral':
-            self.gc_spectra_root    
             card_data = pd.read_csv(os.path.join(self.gc_spectra_root, self.gc_file[0]), sep='\t')
-            card_wl = card_data.keys()[176:577].astype(float)
+            # card_wl = card_data.keys()[176:577].astype(float) 
             grey_ref = 0.01*card_data.iloc[0,176:577].values # convert from % to frac
-
-        # add grey_ref and rho to reflectance class
+            # card_wl_zoom = card_data.keys()[176 + int(wl_zoom[0] - wl[0]) : 577 - int(wl_zoom[0] - wl[0])].astype(float)
+            grey_ref_zoom = 0.01*card_data.iloc[0, 176 + int(wl_zoom[0] - wl[0]): 577 - int(wl_zoom[0] - wl[0])].values
+        
+        # save grey_ref spectra and rho to reflectance class
         self.card_spectra = grey_ref
         self.rho = rho
         
-        # compute lw and rrs
+        # calculate lw and Rrs in each band for uncorrected and uncorrected qp and qm
         for i in range(1, n_bands + 1):
    
             # intensity
@@ -1236,6 +1267,24 @@ class Ispexreflectance(object):
                               - rho*sky_exp.spectra_calibrated_qm[:,i])
             self.rrs_qm[:,i] =  np.divide(self.lw_qm[:,i], 
                                 (np.pi/grey_ref)*(card_exp.spectra_calibrated_qm[:,i]))
+            
+            # intensity for correlation corrected
+            self.lw_corr[:,i] = ((water_exp.spectra_calibrated_qp_corr[:,i] + water_exp.spectra_calibrated_qm_corr[:,i]) 
+                            - rho*(sky_exp.spectra_calibrated_qp_corr[:,i] + sky_exp.spectra_calibrated_qm_corr[:,i]))       
+            self.rrs_corr[:,i] = np.divide(self.lw_corr[:,i], 
+                            (np.pi/grey_ref_zoom)*(card_exp.spectra_calibrated_qp_corr[:,i] + card_exp.spectra_calibrated_qm_corr[:,i]))
+    
+            # plus polarization mode for correlation corrected
+            self.lw_qp_corr[:,i] =  (water_exp.spectra_calibrated_qp_corr[:, i] 
+                                    - rho*sky_exp.spectra_calibrated_qp_corr[:,i])
+            self.rrs_qp_corr[:,i] =  np.divide(self.lw_qp_corr[:,i], 
+                                (np.pi/grey_ref_zoom)*(card_exp.spectra_calibrated_qp_corr[:,i]))
+            
+            # minus polarization mode for correlation corrected
+            self.lw_qm_corr[:,i] =  (water_exp.spectra_calibrated_qm_corr[:, i] 
+                              - rho*sky_exp.spectra_calibrated_qm_corr[:,i])
+            self.rrs_qm_corr[:,i] =  np.divide(self.lw_qm_corr[:,i], 
+                                (np.pi/grey_ref_zoom)*(card_exp.spectra_calibrated_qm_corr[:,i]))
                                                  
         # replace nan-padding (from division errors) with zeros again    
         self.lw = np.nan_to_num(self.lw)
@@ -1244,6 +1293,13 @@ class Ispexreflectance(object):
         self.rrs_qp = np.nan_to_num(self.rrs_qp)
         self.lw_qm = np.nan_to_num(self.lw_qm)
         self.rrs_qm = np.nan_to_num(self.rrs_qm)
+        
+        self.lw_corr= np.nan_to_num(self.lw_corr)
+        self.rrs_corr = np.nan_to_num(self.rrs_corr)
+        self.lw_qp_corr = np.nan_to_num(self.lw_qp_corr)
+        self.rrs_qp_corr = np.nan_to_num(self.rrs_qp_corr)
+        self.lw_qm_corr = np.nan_to_num(self.lw_qm_corr)
+        self.rrs_qm_corr = np.nan_to_num(self.rrs_qm_corr)
 
 
     def plot_rrs(self, rrs_exp):
@@ -1321,3 +1377,8 @@ class Ispexreflectance(object):
        
        plt.savefig(os.path.join(rrs_exp.save_path, f'{rrs_exp.label}_rrs.png'), bbox_inches="tight", dpi=300)
        plt.close()
+       
+      
+   
+             
+                
