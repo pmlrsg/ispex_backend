@@ -1379,6 +1379,109 @@ class Ispexreflectance(object):
        plt.close()
        
       
+        
+    def plot_rrs_corr(self, rrs_exp):
+          
+         """
+         Basic plot function for rrs, rrs_p and rrs_m. 
+         
+         The RGB spectral channels require masking. For now this has been hardcoded, 
+         but other options should be explored (e.g. based on phone SRF functions, 
+         or spectral regions where water signal is highest)
+       
+         """
+
+         
+         #
+         wl = rrs_exp.rrs[:,0]
+         wl_corr = rrs_exp.rrs_corr[:,0]
+         
+         # Masks for spectral channels in rrs plots - these are hardcoded for now
+         mask_R = np.zeros(401) # `Red mask'
+         mask_R[250:331] = 1
+         
+         mask_G = np.zeros(401) # `Green mask'
+         mask_G[140:261] = 1
+         
+         mask_B = np.zeros(401) # `Blue mask'
+         mask_B[60:151] = 1
+      
+         mask = [mask_R, mask_G, mask_B]
+         
+         # Masks for spectral channels in rrs plots - these are hardcoded for now
+         mask_R_corr = np.zeros(341) # `Red mask'
+         mask_R_corr[250-30:331-30] = 1
+         
+         mask_G_corr = np.zeros(341) # `Green mask'
+         mask_G_corr[140-30:261-30] = 1
+         
+         mask_B_corr = np.zeros(341) # `Blue mask'
+         mask_B_corr[60-30:151-30] = 1
+      
+         mask_corr = [mask_R_corr, mask_G_corr, mask_B_corr]
+         # Alternative masks - tests for wl bins where each bands'
+         # water signal is highest
+         # mask_1 = np.logical_and((water_exp.spectra_calibrated_qp[:,1] + 
+                              #   water_exp.spectra_calibrated_qm[:,1]) >
+                              #   (water_exp.spectra_calibrated_qp[:,2] + 
+                              #    water_exp.spectra_calibrated_qm[:,2]),
+                              #   (water_exp.spectra_calibrated_qp[:,1] + 
+                              #    water_exp.spectra_calibrated_qm[:,1]) >
+                              #   (water_exp.spectra_calibrated_qp[:,3] + 
+                              #    water_exp.spectra_calibrated_qm[:,3]))
+      
+         # mask_2 = np.logical_and((water_exp.spectra_calibrated_qp[:,2] + 
+                              #      water_exp.spectra_calibrated_qm[:,2]) >
+                              #  (water_exp.spectra_calibrated_qp[:,1] + 
+                              #  water_exp.spectra_calibrated_qm[:,1]),
+                               #  (water_exp.spectra_calibrated_qp[:,2] + 
+                               #   water_exp.spectra_calibrated_qm[:,2]) >
+                                # (water_exp.spectra_calibrated_qp[:,3] + 
+                                #  water_exp.spectra_calibrated_qm[:,3]))
+       
+         # mask_3 = np.logical_and((water_exp.spectra_calibrated_qp[:,3] + 
+         #                         water_exp.spectra_calibrated_qm[:,3]) >
+         #                        (water_exp.spectra_calibrated_qp[:,1] + 
+         #                        water_exp.spectra_calibrated_qm[:,1]),
+         #                       (water_exp.spectra_calibrated_qp[:,3] + 
+         #                       water_exp.spectra_calibrated_qm[:,3]) >
+         #                       (water_exp.spectra_calibrated_qp[:,2] + 
+         #                       water_exp.spectra_calibrated_qm[:,2]))
+       
+         # spectral plot for rrs 
+         plt.figure(figsize=(10, 4))  
+         plt.rcParams.update({'font.size': 14, 'axes.labelsize': 14})
+         colors = ['red', 'green', 'blue']
+         colors_corr = ['magenta', 'lime', 'cyan']
+      
+         for j in range(1, 4): # loop over bands
+
+             plt.plot(wl[mask[j-1] == True], rrs_exp.rrs[:,j][mask[j-1] == True], 
+                      c = colors[j-1], linewidth=2)                  # rrs_I
+             #plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qp[:,j][mask[j-1] == True], 
+              #        c = colors[j-1], linewidth=2, linestyle='--')  # rrs_qp
+             #plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qm[:,j][mask[j-1] == True], 
+              #       c = colors[j-1], linewidth=2, linestyle=':')   # rrs_qm
+                 
+             plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_corr[:,j][mask_corr[j-1] == True], 
+                      c = colors_corr[j-1], linewidth=2)                  # rrs_I_corr
+             #plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_qp_corr[:,j][mask_corr[j-1] == True], 
+              #        c = colors_corr[j-1], linewidth=2, linestyle='--')  # rrs_qp_corr
+             #plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_qm_corr[:,j][mask_corr[j-1] == True], 
+              #        c = colors_corr[j-1], linewidth=2, linestyle=':')   # rrs_qm_corr
+             
+             
+         plt.legend(["R: Rrs", "R: Rrs_Corr: ", 
+                     "G: Rrs", "G: Rrs_corr", 
+                     "B: Rrs", "B: Rrs_corr",
+                     ], loc=2, fontsize=10)
+         plt.xlabel("Wavelength [nm]", fontsize=14, fontweight='bold')
+         plt.ylabel("R$_{rs}$ [sr$^{-1}$]", fontsize=14, fontweight='bold')
+         plt.ylim(0,0.012) # hardcoded - make this dynamic if desired    
+         plt.xlim(370,700)
+         
+         plt.savefig(os.path.join(rrs_exp.save_path, f'{rrs_exp.label}_rrs_corr.png'), bbox_inches="tight", dpi=300)
+         plt.close()
    
              
                 

@@ -102,7 +102,8 @@ for exposure in rrs_set:
               rrs_set[exposure].calc_rrs(card_set[exposure], water_set[exposure], sky_set[exposure], card_mode ='spectral')
               
               # plot rrs
-              rrs_set[exposure].plot_rrs(rrs_set[exposure])
+           #   rrs_set[exposure].plot_rrs(rrs_set[exposure])
+              rrs_set[exposure].plot_rrs_corr(rrs_set[exposure])
               
 
      else: 
@@ -116,6 +117,6 @@ for exposure in rrs_set:
     if hasattr(rrs_set[exposure], 'rrs') == 1:
         acquistion_qc(rrs_set[exposure], card_set[exposure], water_set[exposure], sky_set[exposure])
 
-# `Linearity qc' applies over a set of exposures
+# `Linearity qc' applies over a set of exposures 
 for set in [card_set, water_set, sky_set]:
     linearity_qc(set)
