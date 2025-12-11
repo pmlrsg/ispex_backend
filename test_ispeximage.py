@@ -49,17 +49,17 @@ for impath in images:
     if obstype == 'C':
         card_set[exposure] = Ispeximage(dng_path=impath,
                                         type='observation',
-                                        save_path_root='example_outputs/iSPEX_Set_20251001_1524_0770',
+                                        save_path_root='example_outputs/iSPEX_Set_20250806_0925_3537',
                                         calibration_set='cameras/iPhone14_4/20250813_1501_59E5_E2')
     elif obstype == 'W':
         water_set[exposure] = Ispeximage(dng_path=impath,
                                          type='observation',
-                                         save_path_root='example_outputs/iSPEX_Set_20251001_1524_0770',
+                                         save_path_root='example_outputs/iSPEX_Set_20250806_0925_3537',
                                         calibration_set='cameras/iPhone14_4/20250813_1501_59E5_E2')
     elif obstype == 'S':
         sky_set[exposure] = Ispeximage(dng_path=impath,
                                        type='observation',
-                                       save_path_root='example_outputs/iSPEX_Set_20251001_1524_0770',
+                                       save_path_root='example_outputs/iSPEX_Set_20250806_0925_3537',
                                         calibration_set='cameras/iPhone14_4/20250813_1501_59E5_E2')
     else:
         log.warning(f"Unknown observation type {obstype} in file {impath}")

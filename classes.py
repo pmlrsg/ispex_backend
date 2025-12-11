@@ -5,6 +5,7 @@ import pandas as pd
 
 import rawpy as rawpy_lib
 from scipy.ndimage import gaussian_filter as gaussMd
+from scipy import signal
 from sklearn.cluster import KMeans
 from sklearn.ensemble import HistGradientBoostingRegressor
 import logging
@@ -325,6 +326,9 @@ class Ispeximage(object):
 
         self.spectra_calibrated_qp = self.stack(self.wavelength_grid, self.img_calibrated_qp)  # RGB radiance in arbitrary units
         self.spectra_calibrated_qm = self.stack(self.wavelength_grid, self.img_calibrated_qm)  # RGB radiance in arbitrary units
+        
+        # Derive versions of spectra_calibrated qp,qm that have cross-correlation wavelength adjustment
+        self.spectra_calibrated_qp_corr, self.spectra_calibrated_qm_corr = self.wl_correlation_correction(self.spectra_calibrated_qp, self.spectra_calibrated_qm)
 
     def process_fluorescent_lamp_calibration(self):
         """
@@ -998,6 +1002,66 @@ class Ispeximage(object):
         FWHMs_nm = FWHMs_px * dispersion
         return FWHMs_nm
     
+    def correlation_lag(self, spectra_calibrated, spectra_ref):    
+        
+        '''Computes correlation lag (pixel shift in wavelength-space) between 
+        reference spectrum and measurement'''
+        
+        # compute cross-correlation and lags
+        correlation = signal.correlate(spectra_calibrated, spectra_ref, mode='full') 
+        lags = signal.correlation_lags(len(spectra_calibrated), len(spectra_ref), mode='full')
+       
+        # Find position of correlation peak/maximum as a function of lag
+        corr_maxindex = np.round(np.argmax(correlation))
+        peak_lag = lags[corr_maxindex]
+        
+        # plt.plot(lags, correlation)
+        # plt.xlabel("Lag")
+        # plt.ylabel("Cross-correlation")
+        # plt.title("Cross-correlation vs. Lag")
+        # plt.grid(True)
+        # plt.show()
+
+        return peak_lag
+    
+    def wl_correlation_correction(self, spectra_calibrated_qp, spectra_calibrated_qm, ref_spectra_set ='reference_SRF_spectra/20250812_1607_E2/'):
+       
+        ''' Derivies correlation-corrected qp and qm spectra. These have their own wavelength grids which are saved
+        as the 0th column, following the format of calibrated qp and qm spectra. For now, a `3-band average shift'
+        is used to correct '''
+        
+        # load `SRF-like' reference spectra for qp and qm
+        qp_ref = np.load(glob.glob(ref_spectra_set + '*qp*.npy')[0])
+        qm_ref = np.load(glob.glob(ref_spectra_set + '*qm*.npy')[0])
+        
+        # compute cross correlation and derive mean (3-band average) shifts for each polarization mode
+        self.shift_p = int(np.round(np.mean([self.correlation_lag(spectra_calibrated_qp[:, 1], qp_ref[:, 1]),
+                                             self.correlation_lag(spectra_calibrated_qp[:, 2], qp_ref[:, 2]),
+                                             self.correlation_lag(spectra_calibrated_qp[:, 3], qp_ref[:, 3])])))
+        
+        self.shift_m = int(np.round(np.mean([self.correlation_lag(spectra_calibrated_qm[:, 1], qm_ref[:, 1]),
+                                             self.correlation_lag(spectra_calibrated_qm[:, 2], qm_ref[:, 2]),
+                                             self.correlation_lag(spectra_calibrated_qm[:, 3], qm_ref[:, 3])])))
+        
+        # Initialize `correlation corrected' qp and qm spectra - these are defined on a shorter wl range to 
+        # allow the wavelengths to be mapped from the uncorrected spectra
+        
+        shift_tol = 30  # allow shifts of up to +/- 30 nm as default tolerance
+        if self.shift_m < shift_tol and self.shift_p < shift_tol: 
+            wl = self.spectra_calibrated_qm[:, 0]
+            wl_zoom = np.arange(wl[0] + shift_tol, wl[-1] - shift_tol + 1, 1) # truncated wavelength range
+            self.spectra_calibrated_qp_corr = np.zeros([len(wl_zoom), len(self.spectra_calibrated_qp[0])])
+            self.spectra_calibrated_qm_corr = np.zeros([len(wl_zoom), len(self.spectra_calibrated_qm[0])])
+            
+            self.spectra_calibrated_qp_corr[:,0] = wl_zoom
+            self.spectra_calibrated_qm_corr[:,0] = wl_zoom
+    
+            for i in range(1,len(self.spectra_calibrated_qp[0])):
+                self.spectra_calibrated_qp_corr[:,i] = self.spectra_calibrated_qp[shift_tol + self.shift_p: len(wl) - shift_tol + self.shift_p, i]
+                self.spectra_calibrated_qm_corr[:,i] = self.spectra_calibrated_qm[shift_tol + self.shift_m: len(wl) - shift_tol + self.shift_m, i]
+               
+        return
+    
     
 class Ispexreflectance(object):
 
@@ -1124,14 +1188,7 @@ class Ispexreflectance(object):
         n_wl = len(wl)
         n_bands = len(card_exp.spectra_calibrated_qm.T) - 1 # should be 3
         
-        # mask for rrs wl bins - boolean mask for non-zero elements 
-        # could be useful later on, but not needed now
-        # mask_wl = np.logical_and(card_exp.spectra_calibrated_qm.T[1] != 0, 
-                 #                 water_exp.spectra_calibrated_qm.T[1] != 0,
-                 #                 sky_exp.spectra_calibrated_qm.T[1] != 0) 
-                
-        # initialize data matrices: zero is used for padding digits as that 
-        # follows image class
+        # initialize data matrices: zero is used for padding digits
         self.lw = np.zeros([n_wl, n_bands + 1])
         self.lw[:,0] = wl
         self.lw_qp = np.zeros([n_wl, n_bands + 1])
@@ -1188,7 +1245,7 @@ class Ispexreflectance(object):
         self.lw_qm = np.nan_to_num(self.lw_qm)
         self.rrs_qm = np.nan_to_num(self.rrs_qm)
 
-          
+
     def plot_rrs(self, rrs_exp):
         
        """
@@ -1264,8 +1321,3 @@ class Ispexreflectance(object):
        
        plt.savefig(os.path.join(rrs_exp.save_path, f'{rrs_exp.label}_rrs.png'), bbox_inches="tight", dpi=300)
        plt.close()
-                          
-       
-
-
-#plt.savefig(os.path.join(self.save_path, f'img_raw_sum_along_slit_cumsum_{n_clusters}.png'))
