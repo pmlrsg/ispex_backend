@@ -34,10 +34,10 @@ class Ispeximage(object):
     """
     def __init__(self,
                  dng_path,
-                 save_path_root = 'example_outputs',
+                 save_path_root='example_outputs',
                  calibration_set = None,
                  calibration_root = 'cameras',
-                 output_plots=False,
+                 output_plots=True,
                  type='observation'):
         """
         Initialize the Ispeximage object with the path to the dng image file,
@@ -827,7 +827,7 @@ class Ispeximage(object):
 
         if self.output_plots:
             plt.savefig(os.path.join(self.save_path, f"{self.label}_fluorescent_dispersion_qx.png"), dpi=300, bbox_inches="tight")
-
+            
         plt.close()
 
     def _raw2RGB(self, normalise=False):
@@ -1029,7 +1029,7 @@ class Ispeximage(object):
         ''' Derivies correlation-corrected qp and qm spectra. These have their own wavelength grids which are saved
         as the 0th column, following the format of calibrated qp and qm spectra. For now, a `3-band average shift'
         is used to correct '''
-        
+       
         # load `SRF-like' reference spectra for qp and qm
         qp_ref = np.load(glob.glob(ref_spectra_set + '*qp*.npy')[0])
         qm_ref = np.load(glob.glob(ref_spectra_set + '*qm*.npy')[0])
@@ -1059,8 +1059,8 @@ class Ispeximage(object):
             for i in range(1,len(self.spectra_calibrated_qp[0])):
                 self.spectra_calibrated_qp_corr[:,i] = self.spectra_calibrated_qp[shift_tol + self.shift_p: len(wl) - shift_tol + self.shift_p, i]
                 self.spectra_calibrated_qm_corr[:,i] = self.spectra_calibrated_qm[shift_tol + self.shift_m: len(wl) - shift_tol + self.shift_m, i]
-               
-        return
+
+        return self.spectra_calibrated_qp_corr, self.spectra_calibrated_qm_corr
     
     
 class Ispexreflectance(object):
@@ -1080,7 +1080,7 @@ class Ispexreflectance(object):
                  save_path_root='example_outputs',
                  gc_spectra_root='greycard_spectra',
                  gc_file='GreyCard_DDQ_69180226-f0db-43ce-85ab-66f77d5cdd19.csv',
-                 output_plots=False):
+                 output_plots=True):
       """
       Relevant metadata fields are first copied from the water exposure (water_exp)
       Reflectance-specific fields are then initialized.
@@ -1452,19 +1452,19 @@ class Ispexreflectance(object):
          plt.figure(figsize=(10, 4))  
          plt.rcParams.update({'font.size': 14, 'axes.labelsize': 14})
          colors = ['red', 'green', 'blue']
-         colors_corr = ['magenta', 'lime', 'cyan']
+
       
          for j in range(1, 4): # loop over bands
 
              plt.plot(wl[mask[j-1] == True], rrs_exp.rrs[:,j][mask[j-1] == True], 
-                      c = colors[j-1], linewidth=2)                  # rrs_I
+                      c = colors[j-1], linewidth=2, linestyle='dashed')                  # rrs_I
              #plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qp[:,j][mask[j-1] == True], 
               #        c = colors[j-1], linewidth=2, linestyle='--')  # rrs_qp
              #plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qm[:,j][mask[j-1] == True], 
               #       c = colors[j-1], linewidth=2, linestyle=':')   # rrs_qm
                  
              plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_corr[:,j][mask_corr[j-1] == True], 
-                      c = colors_corr[j-1], linewidth=2)                  # rrs_I_corr
+                      c = colors[j-1], linewidth=2)                  # rrs_I_corr
              #plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_qp_corr[:,j][mask_corr[j-1] == True], 
               #        c = colors_corr[j-1], linewidth=2, linestyle='--')  # rrs_qp_corr
              #plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_qm_corr[:,j][mask_corr[j-1] == True], 
@@ -1479,6 +1479,7 @@ class Ispexreflectance(object):
          plt.ylabel("R$_{rs}$ [sr$^{-1}$]", fontsize=14, fontweight='bold')
          plt.ylim(0,0.012) # hardcoded - make this dynamic if desired    
          plt.xlim(370,700)
+         
          
          plt.savefig(os.path.join(rrs_exp.save_path, f'{rrs_exp.label}_rrs_corr.png'), bbox_inches="tight", dpi=300)
          plt.close()

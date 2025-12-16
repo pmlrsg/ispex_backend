@@ -64,7 +64,6 @@ for impath in images:
     else:
         log.warning(f"Unknown observation type {obstype} in file {impath}")
 
-
 # Process each set
 for set in [card_set, water_set, sky_set]:
     for exposure in set:
@@ -75,7 +74,7 @@ for set in [card_set, water_set, sky_set]:
                 log.info(f"Processing {exposure}")
                 set[exposure].process()
                 set[exposure].plot_bounding_areas()
-                #set[exposure].plot_background_correction()
+                # set[exposure].plot_background_correction()
                 set[exposure].plot_spectra()
             except Exception as e:
                 log.error(f"Error processing {set[exposure].dng_path}: {e}")
@@ -102,7 +101,7 @@ for exposure in rrs_set:
               rrs_set[exposure].calc_rrs(card_set[exposure], water_set[exposure], sky_set[exposure], card_mode ='spectral')
               
               # plot rrs
-           #   rrs_set[exposure].plot_rrs(rrs_set[exposure])
+              rrs_set[exposure].plot_rrs(rrs_set[exposure])
               rrs_set[exposure].plot_rrs_corr(rrs_set[exposure])
               
 
