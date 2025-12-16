@@ -1246,8 +1246,8 @@ class Ispexreflectance(object):
         # save grey_ref spectra, rho and shift vectors to reflectance class metadata
         self.card_spectra = grey_ref
         self.rho = rho
-        self.shift_vector_qp = [card_exp.qp, water_exp.qp, sky_exp.qp]
-        self.shift_vector_qm = [card_exp.qm, water_exp.qm, sky_exp.qm]
+        self.shift_vector_qp = [card_exp.shift_p, water_exp.shift_p, sky_exp.shift_p]
+        self.shift_vector_qm = [card_exp.shift_m, water_exp.shift_m, sky_exp.shift_m]
         
         # calculate lw and Rrs in each band for uncorrected and uncorrected qp and qm
         for i in range(1, n_bands + 1):
