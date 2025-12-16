@@ -708,9 +708,9 @@ class Ispeximage(object):
             plt.plot(self.spectra_calibrated_qm[:,0], self.spectra_calibrated_qm[:,j], c=color, linewidth=2, linestyle='--')  # Thicker lines
             plt.plot(self.spectra_calibrated_qp[:,0], self.spectra_calibrated_qp[:,j], c=color, linewidth=2, linestyle=':')  # Thicker lines
 
-        plt.legend(["Red", "Green", "Blue",
-                    "Red_Qm", "Green_Qm", "Blue_Qm",
-                    "Red_Qp", "Green_Qp", "Blue_Qp"], loc='upper right', fontsize=10)
+        plt.legend(["Red", "Red_Qm", "Red_Qp",
+                    "Green", "Green_Qm", "Green_Qp",
+                    "Blue", "Blue_Qm,", "Blue_Qp"], loc='upper right', fontsize=10)
         plt.xlabel("Wavelength [nm]", fontsize=14, fontweight='bold')
         plt.ylabel("Intensity [a.u.]", fontsize=14, fontweight='bold')
         plt.grid(color='grey', linestyle='--', linewidth=0.5, alpha=0.7)
