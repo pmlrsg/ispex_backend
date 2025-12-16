@@ -1243,9 +1243,11 @@ class Ispexreflectance(object):
             # card_wl_zoom = card_data.keys()[176 + int(wl_zoom[0] - wl[0]) : 577 - int(wl_zoom[0] - wl[0])].astype(float)
             grey_ref_zoom = 0.01*card_data.iloc[0, 176 + int(wl_zoom[0] - wl[0]): 577 - int(wl_zoom[0] - wl[0])].values
         
-        # save grey_ref spectra and rho to reflectance class
+        # save grey_ref spectra, rho and shift vectors to reflectance class metadata
         self.card_spectra = grey_ref
         self.rho = rho
+        self.shift_vector_qp = [card_exp.qp, water_exp.qp, sky_exp.qp]
+        self.shift_vector_qm = [card_exp.qm, water_exp.qm, sky_exp.qm]
         
         # calculate lw and Rrs in each band for uncorrected and uncorrected qp and qm
         for i in range(1, n_bands + 1):
@@ -1471,7 +1473,7 @@ class Ispexreflectance(object):
               #        c = colors_corr[j-1], linewidth=2, linestyle=':')   # rrs_qm_corr
              
              
-         plt.legend(["R: Rrs", "R: Rrs_Corr: ", 
+         plt.legend(["R: Rrs", "R: Rrs_corr: ", 
                      "G: Rrs", "G: Rrs_corr", 
                      "B: Rrs", "B: Rrs_corr",
                      ], loc=2, fontsize=10)
