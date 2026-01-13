@@ -1083,6 +1083,7 @@ class Ispexreflectance(object):
                  output_plots=True):
       """
       Relevant metadata fields are first copied from the water exposure (water_exp)
+     
       Reflectance-specific fields are then initialized.
       
       """
@@ -1116,7 +1117,6 @@ class Ispexreflectance(object):
       # self.max_iso = water_exp.max_iso
       # self.lens_position = water_exp.lens_poistion
 
-      # rrs spectra GPS and geometry is referenced to water
       self.latitude = water_exp.latitude
       self.longitude = water_exp.longitude
       
@@ -1141,20 +1141,29 @@ class Ispexreflectance(object):
       self.rrs = None # Rrs for intensity (rrs_I)
       self.rrs_qp = None # Rrs for plus polarization state
       self.rrs_qm = None # Rrs for minus polarization state
-      
+
+      self.rrs_corr = None
+      self.rrs_qm_corr = None
+      self.rrs_qp_corr = None
+
       # Water-leaving radiance fields
       self.lw = None # lw for intensity (lw_I)
       self.lw_qp = None # lw for plus polarization state
       self.lw_qm = None # lw for minus polarization state
       
+      self.lw_corr = None # lw for intensity (lw_I)
+      self.lw_qp_corr = None # lw for plus polarization state
+      self.lw_q_coor = None # lw for minus polarization state
+      
+      # Meta data for reflectance computation
       self.rho = None # Reflectance factor used in rrs computation 
       self.card_spectra = None # Grey card spectra used in rrs computation
       self.gc_spectra_root = gc_spectra_root # directory for grey card
-      self.gc_file = 'GreyCard_DDQ_69180226-f0db-43ce-85ab-66f77d5cdd19.csv',
+      self.gc_file = 'GreyCard_DDQ_69180226-f0db-43ce-85ab-66f77d5cdd19.csv'
       
       # QC flags 
       self.elevation_flag = False  # Tests for optimum (140, 40 deg) elevation
-      self.azimuth135_tol = False # Tests for optimum(135 deg) rel azimuth
+      self.azimuth135_flag = False # Tests for optimum (135 deg) rel azimuth
       self.azimuthrange_flag = False # Tests for allowed azimuth range [90,145]
       self.sequencetime_flag = False # Tests for allowed duration of set
 
@@ -1166,15 +1175,16 @@ class Ispexreflectance(object):
         Calculates water-leaving radiance and reflectance for each exposure 
         setting for intensity and each polarization state. Correlation-corrected
         water-leaving radiance and reflectance are also provided, and notated 
-        by _corr.
+        by _corr. Card, water and sky spectra used in the reflectance computations 
+        are also saved.
         
         Inputs:
             
         card_exp, water_exp, sky_exp: processed images for a given exposure
         card_mode: `spectral' (measured in lab) or `constant' (0.18)
-        rho: Fresnel relfectace factor - default constant for now
+        rho: Fresnel relfectace factor - default constant for now.
         
-        Outputs to reflectance class:
+        Spectral outputs to reflectance class:
             
         lw: water-leaving radiance for intensity 
         lw_p: water-leaving radiance for plus polarization state
@@ -1191,6 +1201,21 @@ class Ispexreflectance(object):
         rrs_corr: reflectance for intensity with correlation correction
         rrs_p_corr: reflectance for plus polarization state with correlation correction
         rrs_m_corr: reflectance for minus polarization state with correlation correction
+        
+        card_qp: same as card_exp.spectra_calibrated_qp in image class
+        water_qp: same as water_exp.spectra_calibrated_qp in image class
+        sky_qp: same as sky_exp.spectra_calibrated_qp in image class
+
+        self.card_qm_corr = card_exp.spectra_calibrated_qm_corr in image class
+        self.water_qm_corr = water_exp.spectra_calibrated_qm_corr in image class
+        self.sky_qm_corr = sky_exp.spectra_calibrated_qm_corr in image class
+
+        Meta data outputs to reflectance class:
+        
+        card_spectra: grey card spectrum
+        rho: fresnel reflectance factor
+        shift_vector_qp: vector for wl shifts in nm derived from cross correlation (card, water, sky)
+        shift_vector_qm: vector for wl shifts in nm derived from cross correlation (card, water, sky)
         
         """
     
@@ -1237,7 +1262,8 @@ class Ispexreflectance(object):
         if card_mode == 'constant':
             grey_ref = 0.18
         elif card_mode == 'spectral':
-            card_data = pd.read_csv(os.path.join(self.gc_spectra_root, self.gc_file[0]), sep='\t')
+            # breakpoint()
+            card_data = pd.read_csv(os.path.join(self.gc_spectra_root, self.gc_file), sep='\t')
             # card_wl = card_data.keys()[176:577].astype(float) 
             grey_ref = 0.01*card_data.iloc[0,176:577].values # convert from % to frac
             # card_wl_zoom = card_data.keys()[176 + int(wl_zoom[0] - wl[0]) : 577 - int(wl_zoom[0] - wl[0])].astype(float)
@@ -1302,6 +1328,24 @@ class Ispexreflectance(object):
         self.rrs_qp_corr = np.nan_to_num(self.rrs_qp_corr)
         self.lw_qm_corr = np.nan_to_num(self.lw_qm_corr)
         self.rrs_qm_corr = np.nan_to_num(self.rrs_qm_corr)
+        
+        # save card, water and sky spectra used in computations within reflectance class
+        # (this is desirable for post-processing data analysis)
+        self.card_qp = card_exp.spectra_calibrated_qp
+        self.water_qp = water_exp.spectra_calibrated_qp
+        self.sky_qp = sky_exp.spectra_calibrated_qp
+        
+        self.card_qm = card_exp.spectra_calibrated_qm
+        self.water_qm = water_exp.spectra_calibrated_qm
+        self.sky_qm = sky_exp.spectra_calibrated_qm
+
+        self.card_qm_corr = card_exp.spectra_calibrated_qm_corr
+        self.water_qm_corr = water_exp.spectra_calibrated_qm_corr
+        self.sky_qm_corr = sky_exp.spectra_calibrated_qm_corr
+
+        self.card_qp_corr = card_exp.spectra_calibrated_qp_corr
+        self.water_qp_corr = water_exp.spectra_calibrated_qp_corr
+        self.sky_qp_corr = sky_exp.spectra_calibrated_qp_corr
 
 
     def plot_rrs(self, rrs_exp):
@@ -1460,16 +1504,16 @@ class Ispexreflectance(object):
 
              plt.plot(wl[mask[j-1] == True], rrs_exp.rrs[:,j][mask[j-1] == True], 
                       c = colors[j-1], linewidth=2, linestyle='dashed')                  # rrs_I
-             #plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qp[:,j][mask[j-1] == True], 
+             # plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qp[:,j][mask[j-1] == True], 
               #        c = colors[j-1], linewidth=2, linestyle='--')  # rrs_qp
-             #plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qm[:,j][mask[j-1] == True], 
+             # plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qm[:,j][mask[j-1] == True], 
               #       c = colors[j-1], linewidth=2, linestyle=':')   # rrs_qm
                  
              plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_corr[:,j][mask_corr[j-1] == True], 
                       c = colors[j-1], linewidth=2)                  # rrs_I_corr
-             #plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_qp_corr[:,j][mask_corr[j-1] == True], 
+             # plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_qp_corr[:,j][mask_corr[j-1] == True], 
               #        c = colors_corr[j-1], linewidth=2, linestyle='--')  # rrs_qp_corr
-             #plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_qm_corr[:,j][mask_corr[j-1] == True], 
+             # plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_qm_corr[:,j][mask_corr[j-1] == True], 
               #        c = colors_corr[j-1], linewidth=2, linestyle=':')   # rrs_qm_corr
              
              
