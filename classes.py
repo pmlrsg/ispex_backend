@@ -1029,10 +1029,14 @@ class Ispeximage(object):
         ''' Derivies correlation-corrected qp and qm spectra. These have their own wavelength grids which are saved
         as the 0th column, following the format of calibrated qp and qm spectra. For now, a `3-band average shift'
         is used to correct '''
+        
+        breakpoint()
+        
        
         # load `SRF-like' reference spectra for qp and qm
         qp_ref = np.load(glob.glob(ref_spectra_set + '*qp*.npy')[0])
         qm_ref = np.load(glob.glob(ref_spectra_set + '*qm*.npy')[0])
+        I_ref = np.load(glob.glob(ref_spectra_set + '*I*.npy')[0]) # polarization-averaged SRF
         
         # compute cross correlation and derive mean (3-band average) shifts for each polarization mode
         self.shift_p = int(np.round(np.mean([self.correlation_lag(spectra_calibrated_qp[:, 1], qp_ref[:, 1]),
@@ -1043,6 +1047,12 @@ class Ispeximage(object):
                                              self.correlation_lag(spectra_calibrated_qm[:, 2], qm_ref[:, 2]),
                                              self.correlation_lag(spectra_calibrated_qm[:, 3], qm_ref[:, 3])])))
         
+        # compute cross correlation
+        self.shift_I = int(np.round(np.mean([self.correlation_lag(spectra_calibrated_qp[:, 1] + spectra_calibrated_qm[:, 1], I_ref[:, 1]),
+                                             self.correlation_lag(spectra_calibrated_qp[:, 2] + spectra_calibrated_qm[:, 2], I_ref[:, 2]),
+                                             self.correlation_lag(spectra_calibrated_qm[:, 3] + spectra_calibrated_qm[:, 3], I_ref[:, 3])])))
+        
+        
         # Initialize `correlation corrected' qp and qm spectra - these are defined on a shorter wl range to 
         # allow the wavelengths to be mapped from the uncorrected spectra
         
@@ -1050,17 +1060,23 @@ class Ispeximage(object):
         if self.shift_m < shift_tol and self.shift_p < shift_tol: 
             wl = self.spectra_calibrated_qm[:, 0]
             wl_zoom = np.arange(wl[0] + shift_tol, wl[-1] - shift_tol + 1, 1) # truncated wavelength range
+           
             self.spectra_calibrated_qp_corr = np.zeros([len(wl_zoom), len(self.spectra_calibrated_qp[0])])
             self.spectra_calibrated_qm_corr = np.zeros([len(wl_zoom), len(self.spectra_calibrated_qm[0])])
-            
+            self.spectra_calibrated_I_corr = np.zeros([len(wl_zoom), len(self.spectra_calibrated_qm[0])])
+                      
             self.spectra_calibrated_qp_corr[:,0] = wl_zoom
             self.spectra_calibrated_qm_corr[:,0] = wl_zoom
+            self.spectra_calibrated_I_corr[:,0] = wl_zoom
     
             for i in range(1,len(self.spectra_calibrated_qp[0])):
                 self.spectra_calibrated_qp_corr[:,i] = self.spectra_calibrated_qp[shift_tol + self.shift_p: len(wl) - shift_tol + self.shift_p, i]
                 self.spectra_calibrated_qm_corr[:,i] = self.spectra_calibrated_qm[shift_tol + self.shift_m: len(wl) - shift_tol + self.shift_m, i]
-
-        return self.spectra_calibrated_qp_corr, self.spectra_calibrated_qm_corr
+                self.spectra_calibrated_I_corr[:,i] = (self.spectra_calibrated_qp[shift_tol + self.shift_I: len(wl) - shift_tol + self.shift_I, i]
+                                                     + self.spectra_calibrated_qm[shift_tol + self.shift_I: len(wl) - shift_tol + self.shift_I, i])
+                
+                
+        return self.spectra_calibrated_qp_corr, self.spectra_calibrated_qm_corr, self.spectra_calibrated_I_corr
     
     
 class Ispexreflectance(object):
@@ -1153,7 +1169,7 @@ class Ispexreflectance(object):
       
       self.lw_corr = None # lw for intensity (lw_I)
       self.lw_qp_corr = None # lw for plus polarization state
-      self.lw_q_coor = None # lw for minus polarization state
+      self.lw_qm_coor = None # lw for minus polarization state
       
       # Meta data for reflectance computation
       self.rho = None # Reflectance factor used in rrs computation 
