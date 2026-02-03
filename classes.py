@@ -1194,6 +1194,10 @@ class Ispexreflectance(object):
         by _corr. Card, water and sky spectra used in the reflectance computations 
         are also saved.
         
+        NOTE: rrs_p and rrr_m use `polarization-averaged' versions of rho - 
+        we will need to update these if we know orienation of m and p relative to water surface
+        (i.e. whether m and p map onto s and p modes)
+        
         Inputs:
             
         card_exp, water_exp, sky_exp: processed images for a given exposure
@@ -1300,7 +1304,7 @@ class Ispexreflectance(object):
             self.rrs[:,i] = np.divide(self.lw[:,i], 
                             (np.pi/grey_ref)*(card_exp.spectra_calibrated_qp[:,i] + card_exp.spectra_calibrated_qm[:,i]))
     
-            # plus polarization mode
+            # plus polarization mode.
             self.lw_qp[:,i] =  (water_exp.spectra_calibrated_qp[:, i] 
                               - rho*sky_exp.spectra_calibrated_qp[:,i])
             self.rrs_qp[:,i] =  np.divide(self.lw_qp[:,i], 
