@@ -1210,18 +1210,19 @@ class Ispexreflectance(object):
         Calculates water-leaving radiance and reflectance for each exposure 
         setting for intensity and each polarization state. Correlation-corrected
         water-leaving radiance and reflectance are also provided, and notated 
-        by _corr. Card, water and sky spectra used in the reflectance computations 
-        are also saved.
+        by _corr.
         
         NOTE: rrs_p and rrr_m use `polarization-averaged' versions of rho - 
         we will need to update these if we know orienation of m and p relative to water surface
         (i.e. whether m and p map onto s and p modes)
+        
         
         Inputs:
             
         card_exp, water_exp, sky_exp: processed images for a given exposure
         card_mode: `spectral' (measured in lab) or `constant' (0.18)
         rho: Fresnel relfectace factor - default constant for now.
+        
         
         Spectral outputs to reflectance class:
             
@@ -1241,13 +1242,7 @@ class Ispexreflectance(object):
         rrs_p_corr: reflectance for plus polarization state with correlation correction
         rrs_m_corr: reflectance for minus polarization state with correlation correction
         
-        card_qp: same as card_exp.spectra_calibrated_qp in image class
-        water_qp: same as water_exp.spectra_calibrated_qp in image class
-        sky_qp: same as sky_exp.spectra_calibrated_qp in image class
 
-        self.card_qm_corr = card_exp.spectra_calibrated_qm_corr in image class
-        self.water_qm_corr = water_exp.spectra_calibrated_qm_corr in image class
-        self.sky_qm_corr = sky_exp.spectra_calibrated_qm_corr in image class
 
         Meta data outputs to reflectance class:
         
@@ -1318,7 +1313,7 @@ class Ispexreflectance(object):
         self.shift_vector_qp = [card_exp.shift_p, water_exp.shift_p, sky_exp.shift_p]
         self.shift_vector_qm = [card_exp.shift_m, water_exp.shift_m, sky_exp.shift_m]
         
-        # calculate lw and Rrs in each band for uncorrected and uncorrected qp and qm
+        # calculate lw and Rrs in each band for corrected and uncorrected qp and qm
         for i in range(1, n_bands + 1):
    
             # intensity
@@ -1378,8 +1373,15 @@ class Ispexreflectance(object):
         self.lw_qm_corr = np.nan_to_num(self.lw_qm_corr)
         self.rrs_qm_corr = np.nan_to_num(self.rrs_qm_corr)
         
-        # save card, water and sky spectra used in computations within reflectance class
-        # (this is desirable for post-processing data analysis)
+
+    def append_radiances_to_rrsclass(self, card_exp, water_exp, sky_exp):
+       
+        """
+        Function to append card, sky and water radiances to rrs class (desirable
+        for subsequent data analysis. This includes both the band responses,
+        and SRF-normalized relative radiance spectra
+        """
+        #
         self.card_qp = card_exp.spectra_calibrated_qp
         self.water_qp = water_exp.spectra_calibrated_qp
         self.sky_qp = sky_exp.spectra_calibrated_qp
@@ -1388,6 +1390,7 @@ class Ispexreflectance(object):
         self.water_qm = water_exp.spectra_calibrated_qm
         self.sky_qm = sky_exp.spectra_calibrated_qm
 
+        #
         self.card_qm_corr = card_exp.spectra_calibrated_qm_corr
         self.water_qm_corr = water_exp.spectra_calibrated_qm_corr
         self.sky_qm_corr = sky_exp.spectra_calibrated_qm_corr
@@ -1397,9 +1400,19 @@ class Ispexreflectance(object):
         self.sky_qp_corr = sky_exp.spectra_calibrated_qp_corr
         
         #
+        self.card_I = self.card_qp + self.card_qm 
+        self.water_I = self.water_qp + self.water_qm 
+        self.sky_I = self.sky_qp + self.sky_qm 
+        
         self.card_I_corr = card_exp.spectra_calibrated_I_corr
         self.water_I_corr = water_exp.spectra_calibrated_I_corr
         self.sky_I_corr = sky_exp.spectra_calibrated_I_corr
+        
+        
+        
+        return
+
+
 
 
     def plot_rrs(self, rrs_exp):
@@ -1557,9 +1570,9 @@ class Ispexreflectance(object):
              plt.plot(wl[mask[j-1] == True], rrs_exp.rrs[:,j][mask[j-1] == True], 
                       c = colors[j-1], linewidth=2, linestyle='dashed')                  # rrs_I
              # plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qp[:,j][mask[j-1] == True], 
-              #        c = colors[j-1], linewidth=2, linestyle='--')  # rrs_qp
-              # plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qm[:,j][mask[j-1] == True], 
-              #       c = colors[j-1], linewidth=2, linestyle=':')   # rrs_qm
+             #        c = colors[j-1], linewidth=2, linestyle='--')  # rrs_qp
+             # plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qm[:,j][mask[j-1] == True], 
+             #       c = colors[j-1], linewidth=2, linestyle=':')   # rrs_qm
                  
              plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_corr[:,j][mask_corr[j-1] == True], 
                       c = colors[j-1], linewidth=2)         
@@ -1567,9 +1580,9 @@ class Ispexreflectance(object):
              plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_corr_V2[:,j][mask_corr[j-1] == True], 
                       c = colors[j-1], linewidth=2,linestyle='dotted')     
              # rrs_I_corr
-            # plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_qp_corr[:,j][mask_corr[j-1] == True], 
+             # plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_qp_corr[:,j][mask_corr[j-1] == True], 
              #         c = colors[j-1], linewidth=2, linestyle='--')  # rrs_qp_corr
-            # plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_qm_corr[:,j][mask_corr[j-1] == True], 
+             # plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_qm_corr[:,j][mask_corr[j-1] == True], 
              #         c = colors[j-1], linewidth=2, linestyle=':')   # rrs_qm_corr
              
              
