@@ -5,6 +5,7 @@ from classes import Ispexreflectance
 import glob
 import os
 import re
+import pickle
 
 # quality control functions
 from quality_control import linearity_qc
@@ -93,10 +94,11 @@ for exposure in rrs_set:
               log.info(f"Calculating reflectance: {exposure}")
            
               # Initialize rrs set  
-              rrs_set[exposure] = Ispexreflectance(water_set[exposure],
-                                                save_path_root = "example_outputs/iSPEX_Set_20250806_0925_3537",
-                                                )
+              rrs_set[exposure] = Ispexreflectance(water_set[exposure], save_path_root = "example_outputs/iSPEX_Set_20250806_0925_3537")
                 
+              # Append radiances to rrs class
+              rrs_set[exposure].append_radiances_to_rrsclass(card_set[exposure], water_set[exposure], sky_set[exposure])                       
+            
               # calculate rrs
               rrs_set[exposure].calc_rrs(card_set[exposure], water_set[exposure], sky_set[exposure], card_mode ='spectral')
               
@@ -119,3 +121,9 @@ for exposure in rrs_set:
 # `Linearity qc' applies over a set of exposures 
 for set in [card_set, water_set, sky_set]:
     linearity_qc(set)
+    
+# breakpoint()
+fname = os.path.join(save_path, img_path.split('/')[-1] + '.obj')
+object_pi = rrs_set
+file_pi = open(fname, 'wb') 
+pickle.dump(object_pi, file_pi)
