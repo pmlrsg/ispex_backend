@@ -93,17 +93,16 @@ for exposure in rrs_set:
          
               log.info(f"Calculating reflectance: {exposure}")
            
-              # Initialize rrs set  
+              # Initialize rrs set # 
               rrs_set[exposure] = Ispexreflectance(water_set[exposure], save_path_root = "example_outputs/iSPEX_Set_20250806_0925_3537")
-                
-              # Append radiances to rrs class
+
+              # calculate rrs #
+              rrs_set[exposure].calc_rrs(card_set[exposure], water_set[exposure], sky_set[exposure], card_mode ='spectral')
+ 
+              # Append radiances to rrs class 
               rrs_set[exposure].append_radiances_to_rrsclass(card_set[exposure], water_set[exposure], sky_set[exposure])                       
             
-              # calculate rrs
-              rrs_set[exposure].calc_rrs(card_set[exposure], water_set[exposure], sky_set[exposure], card_mode ='spectral')
-              
-              # plot rrs
-              rrs_set[exposure].plot_rrs(rrs_set[exposure])
+              # rrs_set[exposure].plot_rrs(rrs_set[exposure])
               rrs_set[exposure].plot_rrs_corr(rrs_set[exposure])
               
 
@@ -111,8 +110,7 @@ for exposure in rrs_set:
              log.info(f"calibrated qp and qm spectra were not present: {exposure}")
              
              
-# quality control - which image exposures should be used for Rrs
-
+# Quality control - which image exposures should be used for Rrs
 # `Acquistion qc' applies on an expsoure-by-exposure basis
 for exposure in rrs_set:
     if hasattr(rrs_set[exposure], 'rrs') == 1:
@@ -122,7 +120,7 @@ for exposure in rrs_set:
 for set in [card_set, water_set, sky_set]:
     linearity_qc(set)
     
-# breakpoint()
+# output rrs_set as pickle object for further analysis
 fname = os.path.join(save_path, img_path.split('/')[-1] + '.obj')
 object_pi = rrs_set
 file_pi = open(fname, 'wb') 

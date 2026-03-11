@@ -1036,13 +1036,8 @@ class Ispeximage(object):
         qp_ref = np.load(glob.glob(ref_spectra_set + '*qp*.npy')[0])
         qm_ref = np.load(glob.glob(ref_spectra_set + '*qm*.npy')[0])
         I_ref = np.load(glob.glob(ref_spectra_set + '*I*.npy')[0]) # polarization-averaged SRF
-        
-        # plt.figure()
-        # plt.plot(qp_ref[:,1:4])
-        # plt.plot(qm_ref[:,1:4])
-        # plt.plot(I_ref[:,1:4])
-        
-  
+      
+    
         # compute cross correlation and derive mean (3-band average) shifts for each polarization mode
         self.shift_p = int(np.round(np.mean([self.correlation_lag(spectra_calibrated_qp[:, 1], qp_ref[:, 1]),
                                              self.correlation_lag(spectra_calibrated_qp[:, 2], qp_ref[:, 2]),
@@ -1188,7 +1183,7 @@ class Ispexreflectance(object):
       
       self.lw_corr = None # lw for intensity (lw_I)
       self.lw_qp_corr = None # lw for plus polarization state
-      self.lw_qm_coor = None # lw for minus polarization state
+      self.lw_qm_corr = None # lw for minus polarization state
       
       # Meta data for reflectance computation
       self.rho = None # Reflectance factor used in rrs computation 
@@ -1212,9 +1207,9 @@ class Ispexreflectance(object):
         water-leaving radiance and reflectance are also provided, and notated 
         by _corr.
         
-        NOTE: rrs_p and rrr_m use `polarization-averaged' versions of rho - 
-        we will need to update these if we know orienation of m and p relative to water surface
-        (i.e. whether m and p map onto s and p modes)
+        NOTE: rrs_p and rrr_m are currently commented out, and will need to be updated
+        with fresnel coeffficients for each polarization mode
+        (we need to establish how m and p map onto s and p modes for oblique reflection)
         
         
         Inputs:
@@ -1253,12 +1248,13 @@ class Ispexreflectance(object):
         
         """
     
-        # number of wl bins and spectral bands in the rrs computations 
+        # number bands and wl bins and spectral bands in the rrs computations 
         n_bands = len(card_exp.spectra_calibrated_qm.T) - 1 # should be 3
         
         wl = card_exp.spectra_calibrated_qm.T[0]
         n_wl = len(wl)
  
+        # wl_zoom referes to the reduced wl grid for correlation-corrected spectra
         wl_zoom = card_exp.spectra_calibrated_qm_corr.T[0]
         n_wl_zoom = len(wl_zoom)
 
@@ -1272,10 +1268,10 @@ class Ispexreflectance(object):
         
         self.rrs = np.zeros([n_wl, n_bands + 1])
         self.rrs[:,0] = wl
-        self.rrs_qp = np.zeros([n_wl, n_bands + 1])
-        self.rrs_qp[:,0] = wl
-        self.rrs_qm = np.zeros([n_wl, n_bands + 1])
-        self.rrs_qm[:,0] = wl
+        # self.rrs_qp = np.zeros([n_wl, n_bands + 1])
+        # self.rrs_qp[:,0] = wl
+        # self.rrs_qm = np.zeros([n_wl, n_bands + 1])
+        # self.rrs_qm[:,0] = wl
   
         # initialize data matrices for corrected fields: zero is used for padding digits
         self.lw_corr = np.zeros([n_wl_zoom, n_bands + 1])
@@ -1284,31 +1280,32 @@ class Ispexreflectance(object):
         self.lw_qp_corr[:,0] = wl_zoom
         self.lw_qm_corr = np.zeros([n_wl_zoom, n_bands + 1])
         self.lw_qp_corr[:,0] = wl_zoom
-        
         self.rrs_corr = np.zeros([n_wl_zoom, n_bands + 1])
         self.rrs_corr[:,0] = wl_zoom
-        self.rrs_qp_corr = np.zeros([n_wl_zoom, n_bands + 1])
-        self.rrs_qp_corr[:,0] = wl_zoom
-        self.rrs_qm_corr = np.zeros([n_wl_zoom, n_bands + 1])
-        self.rrs_qm_corr[:,0] = wl_zoom 
+        # self.rrs_qp_corr = np.zeros([n_wl_zoom, n_bands + 1])
+        # self.rrs_qp_corr[:,0] = wl_zoom
+        # self.rrs_qm_corr = np.zeros([n_wl_zoom, n_bands + 1])
+        # self.rrs_qm_corr[:,0] = wl_zoom 
         
-        #
-        self.lw_corr_V2 = np.zeros([n_wl_zoom, n_bands + 1])
-        self.rrs_corr_V2 = np.zeros([n_wl_zoom, n_bands + 1])
+        # initialize data matrices for intensity-SRF corrected fields (zero is used for padding digits)
+        self.lw_corr_I = np.zeros([n_wl_zoom, n_bands + 1])
+        self.lw_corr_I[:,0] = wl_zoom
+        self.rrs_corr_I = np.zeros([n_wl_zoom, n_bands + 1])
+        self.lw_corr_I[:,0] = wl_zoom
   
         # Load grey card reference spectrum and trim to wavelength range of data. 
         if card_mode == 'constant':
             grey_ref = 0.18
         elif card_mode == 'spectral':
-            # breakpoint()
             card_data = pd.read_csv(os.path.join(self.gc_spectra_root, self.gc_file), sep='\t')
-            # card_wl = card_data.keys()[176:577].astype(float) 
-            grey_ref = 0.01*card_data.iloc[0,176:577].values # convert from % to frac
+            # card_wl = card_data.keys()[176:577].astype(float)  
+            grey_card = 0.01*card_data.iloc[0,176:577].values # convert from % to frac
             # card_wl_zoom = card_data.keys()[176 + int(wl_zoom[0] - wl[0]) : 577 - int(wl_zoom[0] - wl[0])].astype(float)
-            grey_ref_zoom = 0.01*card_data.iloc[0, 176 + int(wl_zoom[0] - wl[0]): 577 - int(wl_zoom[0] - wl[0])].values
+            grey_card_zoom = 0.01*card_data.iloc[0, 176 + int(wl_zoom[0] - wl[0]): 577 - int(wl_zoom[0] - wl[0])].values
         
-        # save grey_ref spectra, rho and shift vectors to reflectance class metadata
-        self.card_spectra = grey_ref
+        # save grey_ref spectra, rho and `shift vectors' to reflectance class metadata
+        self.grey_card = grey_card
+        self.grey_card_zoom = grey_card_zoom
         self.rho = rho
         self.shift_vector_qp = [card_exp.shift_p, water_exp.shift_p, sky_exp.shift_p]
         self.shift_vector_qm = [card_exp.shift_m, water_exp.shift_m, sky_exp.shift_m]
@@ -1320,68 +1317,78 @@ class Ispexreflectance(object):
             self.lw[:,i] = ((water_exp.spectra_calibrated_qp[:,i] + water_exp.spectra_calibrated_qm[:,i]) 
                             - rho*(sky_exp.spectra_calibrated_qp[:,i] + sky_exp.spectra_calibrated_qm[:,i]))       
             self.rrs[:,i] = np.divide(self.lw[:,i], 
-                            (np.pi/grey_ref)*(card_exp.spectra_calibrated_qp[:,i] + card_exp.spectra_calibrated_qm[:,i]))
+                            (np.pi/grey_card)*(card_exp.spectra_calibrated_qp[:,i] + card_exp.spectra_calibrated_qm[:,i]))
     
             # plus polarization mode.
             self.lw_qp[:,i] =  (water_exp.spectra_calibrated_qp[:, i] 
                               - rho*sky_exp.spectra_calibrated_qp[:,i])
-            self.rrs_qp[:,i] =  np.divide(self.lw_qp[:,i], 
-                                (np.pi/grey_ref)*(card_exp.spectra_calibrated_qp[:,i]))
+            # self.rrs_qp[:,i] =  np.divide(self.lw_qp[:,i], 
+            #                   (np.pi/grey_ref)*(card_exp.spectra_calibrated_qp[:,i]))
                                                  
             # minus polarization mode
             self.lw_qm[:,i] =  (water_exp.spectra_calibrated_qm[:, i] 
                               - rho*sky_exp.spectra_calibrated_qm[:,i])
-            self.rrs_qm[:,i] =  np.divide(self.lw_qm[:,i], 
-                                (np.pi/grey_ref)*(card_exp.spectra_calibrated_qm[:,i]))
+            # self.rrs_qm[:,i] =  np.divide(self.lw_qm[:,i], 
+                             #   (np.pi/grey_ref)*(card_exp.spectra_calibrated_qm[:,i]))
             
             # intensity for correlation corrected
             self.lw_corr[:,i] = ((water_exp.spectra_calibrated_qp_corr[:,i] + water_exp.spectra_calibrated_qm_corr[:,i]) 
                             - rho*(sky_exp.spectra_calibrated_qp_corr[:,i] + sky_exp.spectra_calibrated_qm_corr[:,i]))       
             self.rrs_corr[:,i] = np.divide(self.lw_corr[:,i], 
-                            (np.pi/grey_ref_zoom)*(card_exp.spectra_calibrated_qp_corr[:,i] + card_exp.spectra_calibrated_qm_corr[:,i]))
+                            (np.pi/grey_card_zoom)*(card_exp.spectra_calibrated_qp_corr[:,i] + card_exp.spectra_calibrated_qm_corr[:,i]))
     
-            # intensity for correlation corrected_V2 (with polarization-averaged SRF as reference)
-            self.lw_corr_V2[:,i] = (water_exp.spectra_calibrated_I_corr[:,i]) - rho*(sky_exp.spectra_calibrated_I_corr[:,i])       
+            # intensity for correlation corrected with polarization-averaged SRF as reference I)
+            self.lw_corr_I[:,i] = (water_exp.spectra_calibrated_I_corr[:,i]) - rho*(sky_exp.spectra_calibrated_I_corr[:,i])       
                                
-            self.rrs_corr_V2[:,i] = np.divide(self.lw_corr_V2[:,i], 
-                             (np.pi/grey_ref_zoom)*(card_exp.spectra_calibrated_I_corr[:,i]))
+            self.rrs_corr_I[:,i] = np.divide(self.lw_corr_I[:,i], 
+                             (np.pi/grey_card_zoom)*(card_exp.spectra_calibrated_I_corr[:,i]))
     
             # plus polarization mode for correlation corrected
             self.lw_qp_corr[:,i] =  (water_exp.spectra_calibrated_qp_corr[:, i] 
                                     - rho*sky_exp.spectra_calibrated_qp_corr[:,i])
-            self.rrs_qp_corr[:,i] =  np.divide(self.lw_qp_corr[:,i], 
-                                (np.pi/grey_ref_zoom)*(card_exp.spectra_calibrated_qp_corr[:,i]))
+            # self.rrs_qp_corr[:,i] =  np.divide(self.lw_qp_corr[:,i], 
+            #                    (np.pi/grey_ref_zoom)*(card_exp.spectra_calibrated_qp_corr[:,i]))
             
             # minus polarization mode for correlation corrected
             self.lw_qm_corr[:,i] =  (water_exp.spectra_calibrated_qm_corr[:, i] 
                               - rho*sky_exp.spectra_calibrated_qm_corr[:,i])
-            self.rrs_qm_corr[:,i] =  np.divide(self.lw_qm_corr[:,i], 
-                                (np.pi/grey_ref_zoom)*(card_exp.spectra_calibrated_qm_corr[:,i]))
+            # self.rrs_qm_corr[:,i] =  np.divide(self.lw_qm_corr[:,i], 
+            #                   (np.pi/grey_ref_zoom)*(card_exp.spectra_calibrated_qm_corr[:,i]))
                                                  
+            
         # replace nan-padding (from division errors) with zeros again    
         self.lw = np.nan_to_num(self.lw)
         self.rrs = np.nan_to_num(self.rrs)
         self.lw_qp = np.nan_to_num(self.lw_qp)
-        self.rrs_qp = np.nan_to_num(self.rrs_qp)
+        # self.rrs_qp = np.nan_to_num(self.rrs_qp)
         self.lw_qm = np.nan_to_num(self.lw_qm)
-        self.rrs_qm = np.nan_to_num(self.rrs_qm)
+        # self.rrs_qm = np.nan_to_num(self.rrs_qm)
         
         self.lw_corr= np.nan_to_num(self.lw_corr)
         self.rrs_corr = np.nan_to_num(self.rrs_corr)
         self.lw_qp_corr = np.nan_to_num(self.lw_qp_corr)
-        self.rrs_qp_corr = np.nan_to_num(self.rrs_qp_corr)
+        # self.rrs_qp_corr = np.nan_to_num(self.rrs_qp_corr)
         self.lw_qm_corr = np.nan_to_num(self.lw_qm_corr)
-        self.rrs_qm_corr = np.nan_to_num(self.rrs_qm_corr)
+        # self.rrs_qm_corr = np.nan_to_num(self.rrs_qm_corr)
+        
+        self.lw_corr_I = np.nan_to_num(self.lw_corr_I)
+        self.rrs_corr_I = np.nan_to_num(self.rrs_corr_I)
         
 
-    def append_radiances_to_rrsclass(self, card_exp, water_exp, sky_exp):
+    def append_radiances_to_rrsclass(self, card_exp, water_exp, sky_exp, ref_spectra_set ='reference_SRF_spectra/PML_UNIT/'):
        
         """
         Function to append card, sky and water radiances to rrs class (desirable
-        for subsequent data analysis. This includes both the band responses,
-        and SRF-normalized relative radiance spectra
+        for subsequent data analysis). This includes both:
+            
+            (i) Non-corrected versions of band responses for card, water, sky
+            (ii) Correlation-corrected versions of band responses for card, water, sky
+            (iii) SRF-normalized relative radiance spectra
+            (iv) SRF functions
+            
         """
-        #
+       
+        # non-corrected versions of card water and sky band responses
         self.card_qp = card_exp.spectra_calibrated_qp
         self.water_qp = water_exp.spectra_calibrated_qp
         self.sky_qp = sky_exp.spectra_calibrated_qp
@@ -1390,7 +1397,8 @@ class Ispexreflectance(object):
         self.water_qm = water_exp.spectra_calibrated_qm
         self.sky_qm = sky_exp.spectra_calibrated_qm
 
-        #
+
+        # correlation-corrected versions of card water and sky band responses
         self.card_qm_corr = card_exp.spectra_calibrated_qm_corr
         self.water_qm_corr = water_exp.spectra_calibrated_qm_corr
         self.sky_qm_corr = sky_exp.spectra_calibrated_qm_corr
@@ -1398,8 +1406,9 @@ class Ispexreflectance(object):
         self.card_qp_corr = card_exp.spectra_calibrated_qp_corr
         self.water_qp_corr = water_exp.spectra_calibrated_qp_corr
         self.sky_qp_corr = sky_exp.spectra_calibrated_qp_corr
+
         
-        #
+        # correlation-corrected versions of card water and sky band responses
         self.card_I = self.card_qp + self.card_qm 
         self.water_I = self.water_qp + self.water_qm 
         self.sky_I = self.sky_qp + self.sky_qm 
@@ -1407,14 +1416,41 @@ class Ispexreflectance(object):
         self.card_I_corr = card_exp.spectra_calibrated_I_corr
         self.water_I_corr = water_exp.spectra_calibrated_I_corr
         self.sky_I_corr = sky_exp.spectra_calibrated_I_corr
+
         
-        
-        
-        return
+        # load `SRF-like' reference spectra and grey card reflectance
+        qp_ref = np.load(glob.glob(ref_spectra_set + '*qp*.npy')[0])
+        qm_ref = np.load(glob.glob(ref_spectra_set + '*qm*.npy')[0])
+        qp_ref_zoom = np.load(glob.glob(ref_spectra_set + '*qp*.npy')[0])[30:401-30]
+        qm_ref_zoom = np.load(glob.glob(ref_spectra_set + '*qm*.npy')[0])[30:401-30]
+       
+        grey_card = np.stack([self.grey_card, self.grey_card, self.grey_card]).T 
+        grey_card_zoom = np.stack([self.grey_card_zoom, self.grey_card_zoom, self.grey_card_zoom]).T
 
+        # uncorrected, normalized spectra
+        self.ed = np.zeros([len(self.card_qp), len(self.card_qp.T)])
+        self.ls = np.zeros([len(self.card_qp), len(self.card_qp.T)])
+        self.lt = np.zeros([len(self.card_qp), len(self.card_qp.T)])
+        self.ed[:,0] = self.card_qp[:,0] # wavelengths
+        self.lt[:,0] = self.card_qp[:,0]
+        self.ls[:,0] = self.card_qp[:,0]
+        self.ed[:,1:]  = (self.card_qp[:,1:]/qp_ref[:,1:] + self.card_qm[:,1:]/qm_ref[:,1:])*(np.pi/grey_card)
+        self.lt[:,1:]  = self.water_qp[:,1:]/qp_ref[:,1:] + self.water_qm[:,1:]/qm_ref[:,1:]
+        self.ls[:,1:]  = self.sky_qp[:,1:]/qp_ref[:,1:] + self.sky_qm[:,1:]/qm_ref[:,1:]
+  
+        # corrected, normalized spectra
+        self.ed_corr = np.zeros([len(self.card_qp_corr), len(self.card_qp_corr.T)])
+        self.ls_corr = np.zeros([len(self.card_qp_corr), len(self.card_qp_corr.T)])
+        self.lt_corr = np.zeros([len(self.card_qp_corr), len(self.card_qp_corr.T)])
+        self.ed_corr[:,0] = self.card_qp_corr[:,0] # wavelengths
+        self.lt_corr[:,0] = self.card_qp_corr[:,0]
+        self.ls_corr[:,0] = self.card_qp_corr[:,0]
+        self.ed_corr[:,1:] = (self.card_qp_corr[:,1:]/qp_ref_zoom[:,1:] + self.card_qm_corr[:,1:]/qm_ref_zoom[:,1:])*(np.pi/grey_card_zoom)
+        self.lt_corr[:,1:] = self.water_qp_corr[:,1:]/qp_ref_zoom[:,1:] + self.water_qm_corr[:,1:]/qm_ref_zoom[:,1:]
+        self.ls_corr[:,1:] = self.sky_qp_corr[:,1:]/qp_ref_zoom[:,1:] + self.sky_qm_corr[:,1:]/qm_ref_zoom[:,1:]
 
-
-
+    
+     
     def plot_rrs(self, rrs_exp):
         
        """
@@ -1475,14 +1511,12 @@ class Ispexreflectance(object):
 
            plt.plot(wl[mask[j-1] == True], rrs_exp.rrs[:,j][mask[j-1] == True], 
                     c = colors[j-1], linewidth=2)                  # rrs_I
-           plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qp[:,j][mask[j-1] == True], 
-                    c = colors[j-1], linewidth=2, linestyle='--')  # rrs_qp
-           plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qm[:,j][mask[j-1] == True], 
-                    c = colors[j-1], linewidth=2, linestyle=':')   # rrs_qm
+           # plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qp[:,j][mask[j-1] == True], 
+           # c = colors[j-1], linewidth=2, linestyle='--')  # rrs_qp
+           # plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qm[:,j][mask[j-1] == True], 
+           # c = colors[j-1], linewidth=2, linestyle=':')   # rrs_qm
                
-       plt.legend(["R: I", "R: Qm", "R: Qp",
-                   "G: I", "G: Qm", "G: Qp",
-                   "B: I", "B: Qp", "B: Qm"], loc=2, fontsize=10)
+       plt.legend(["R: I", "G: I", "B: I"], loc=2, fontsize=10)
        plt.xlabel("Wavelength [nm]", fontsize=14, fontweight='bold')
        plt.ylabel("R$_{rs}$ [sr$^{-1}$]", fontsize=14, fontweight='bold')
        plt.ylim(0,0.012) # hardcoded - make this dynamic if desired    
@@ -1490,17 +1524,16 @@ class Ispexreflectance(object):
        
        plt.savefig(os.path.join(rrs_exp.save_path, f'{rrs_exp.label}_rrs.png'), bbox_inches="tight", dpi=300)
        plt.close()
-       
-      
+           
         
     def plot_rrs_corr(self, rrs_exp):
           
          """
-         Basic plot function for rrs, rrs_p and rrs_m. 
+         Basic plot function for rrs
          
          The RGB spectral channels require masking. For now this has been hardcoded, 
          but other options should be explored (e.g. based on phone SRF functions, 
-         or spectral regions where water signal is highest)
+         or spectral regions where water signal is highest).
        
          """
 
@@ -1554,9 +1587,9 @@ class Ispexreflectance(object):
          #                         water_exp.spectra_calibrated_qm[:,3]) >
          #                        (water_exp.spectra_calibrated_qp[:,1] + 
          #                        water_exp.spectra_calibrated_qm[:,1]),
-         #                       (water_exp.spectra_calibrated_qp[:,3] + 
-         #                       water_exp.spectra_calibrated_qm[:,3]) >
-         #                       (water_exp.spectra_calibrated_qp[:,2] + 
+         #                        (water_exp.spectra_calibrated_qp[:,3] + 
+         #                        water_exp.spectra_calibrated_qm[:,3]) >
+         #                        (water_exp.spectra_calibrated_qp[:,2] + 
          #                       water_exp.spectra_calibrated_qm[:,2]))
        
          # spectral plot for rrs 
@@ -1564,30 +1597,18 @@ class Ispexreflectance(object):
          plt.rcParams.update({'font.size': 14, 'axes.labelsize': 14})
          colors = ['red', 'green', 'blue']
 
-      
          for j in range(1, 4): # loop over bands
-
              plt.plot(wl[mask[j-1] == True], rrs_exp.rrs[:,j][mask[j-1] == True], 
                       c = colors[j-1], linewidth=2, linestyle='dashed')                  # rrs_I
-             # plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qp[:,j][mask[j-1] == True], 
-             #        c = colors[j-1], linewidth=2, linestyle='--')  # rrs_qp
-             # plt.plot(wl[mask[j-1] == True], rrs_exp.rrs_qm[:,j][mask[j-1] == True], 
-             #       c = colors[j-1], linewidth=2, linestyle=':')   # rrs_qm
-                 
+             
              plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_corr[:,j][mask_corr[j-1] == True], 
                       c = colors[j-1], linewidth=2)         
              
-             plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_corr_V2[:,j][mask_corr[j-1] == True], 
+             plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_corr_I[:,j][mask_corr[j-1] == True], 
                       c = colors[j-1], linewidth=2,linestyle='dotted')     
-             # rrs_I_corr
-             # plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_qp_corr[:,j][mask_corr[j-1] == True], 
-             #         c = colors[j-1], linewidth=2, linestyle='--')  # rrs_qp_corr
-             # plt.plot(wl_corr[mask_corr[j-1] == True], rrs_exp.rrs_qm_corr[:,j][mask_corr[j-1] == True], 
-             #         c = colors[j-1], linewidth=2, linestyle=':')   # rrs_qm_corr
-             
-             
-         plt.legend(["R: Rrs", "R: Rrs_corr: ", "R: Rrs_corr (Intensity)",
-                     "G: Rrs", "G: Rrs_corr",  "G: Rrs_corr (Intensity)",
+                   
+         plt.legend(["R: Rrs", "R: Rrs_corr", "R: Rrs_corr (Intensity)",
+                     "G: Rrs", "G: Rrs_corr", "G: Rrs_corr (Intensity)",
                      "B: Rrs", "B: Rrs_corr", "B: Rrs_corr (Intensity)"
                      ], loc=2, fontsize=10)
          plt.xlabel("Wavelength [nm]", fontsize=14, fontweight='bold')
