@@ -26,6 +26,16 @@ class Constants(object):
         self.degree_of_coefficient_fit = 4
         self.wavelength_limits = (350, 750)
 
+class encoder(json.JSONEncoder):
+    """
+    Encoder to put ispex/rrs class data in correct format when saving to JSON
+    """
+    def default(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, logging.Logger):
+            return str(obj)
+        return super().default(obj)
 
 class Ispeximage(object):
     """
@@ -149,6 +159,7 @@ class Ispeximage(object):
             self.wl_calib_qm = None
         elif self.type == 'observation':
             self.wl_calib_qp, self.wl_calib_qm = self.find_latest_calibration(self.calibration_set)
+            
 
     def get_datetime_uuid_exposure(self):
         """
@@ -1619,6 +1630,21 @@ class Ispexreflectance(object):
          
          plt.savefig(os.path.join(rrs_exp.save_path, f'{rrs_exp.label}_rrs_corr.png'), bbox_inches="tight", dpi=300)
          plt.close()
-   
+         
              
-                
+    def save_as_json(self, rrs_exp):
+          
+        """
+        Saves contnet in each rrs class instance as a JSON. The encoder class
+        is used to covert np.arrays into lists
+        
+        """
+
+        dict_rrs = dict(vars(rrs_exp)) 
+        #  print(list(dict_rrs.keys()))
+        
+        fname = os.path.join(rrs_exp.save_path,  f'{rrs_exp.label}_rrsdata.json')
+        with open(fname, 'w') as fp:
+            json.dump(dict_rrs, fp, cls=encoder)
+
+        

@@ -99,29 +99,65 @@ for exposure in rrs_set:
               # calculate rrs #
               rrs_set[exposure].calc_rrs(card_set[exposure], water_set[exposure], sky_set[exposure], card_mode ='spectral')
  
-              # Append radiances to rrs class 
+              # Append radiances to rrs class #
               rrs_set[exposure].append_radiances_to_rrsclass(card_set[exposure], water_set[exposure], sky_set[exposure])                       
             
-              # rrs_set[exposure].plot_rrs(rrs_set[exposure])
+              # rrs_set[exposure].plot_rrs(rrs_set[exposure]) #
               rrs_set[exposure].plot_rrs_corr(rrs_set[exposure])
+              
+              # save as json
+              rrs_set[exposure].save_as_json(rrs_set[exposure])
               
 
      else: 
              log.info(f"calibrated qp and qm spectra were not present: {exposure}")
-             
-             
+           
+#def save_rrs_set(save_path,rrs_set)
+    
+   # fname = os.path.join(save_path, img_path.split('/')[-1] + '.obj')
+  #  object_pi = rrs_set
+  #  file_pi = open(fname, 'wb') 
+  #  pickle.dump(object_pi, file_pi)
+                          
 # Quality control - which image exposures should be used for Rrs
 # `Acquistion qc' applies on an expsoure-by-exposure basis
-for exposure in rrs_set:
-    if hasattr(rrs_set[exposure], 'rrs') == 1:
-        acquistion_qc(rrs_set[exposure], card_set[exposure], water_set[exposure], sky_set[exposure])
+#for exposure in rrs_set:
+   # if hasattr(rrs_set[exposure], 'rrs') == 1:
+   #     acquistion_qc(rrs_set[exposure], card_set[exposure], water_set[exposure], sky_set[exposure])
 
 # `Linearity qc' applies over a set of exposures 
-for set in [card_set, water_set, sky_set]:
-    linearity_qc(set)
-    
-# output rrs_set as pickle object for further analysis
-fname = os.path.join(save_path, img_path.split('/')[-1] + '.obj')
-object_pi = rrs_set
-file_pi = open(fname, 'wb') 
-pickle.dump(object_pi, file_pi)
+#for set in [card_set, water_set, sky_set]:
+#    linearity_qc(set)
+
+#test_data = rrs_set['E3']
+
+#
+#dict_rrs = dict(vars(test_data))
+#keys_rrs = list(dict_rrs.keys())
+#for i in range(len(dict_rrs)):
+#    data_type = str(type(dict_rrs[keys_rrs[i]]))
+ #   print(data_type)
+  #  if data_type == "<class 'numpy.ndarray'>":
+   #    dict_rrs[keys_rrs[i]] = dict_rrs[keys_rrs[i]].tolist()
+   # elif  data_type == "<class 'logging.Logger'>":
+    #   dict_rrs[keys_rrs[i]] = str(dict_rrs[keys_rrs[i]])
+
+
+#for i in range(len(dict_rrs)):
+ #   data_type = str(type(dict_rrs[keys_rrs[i]]))
+ #   print(data_type)
+#import json
+#import numpy as np
+
+
+
+
+#json.dumps(dict_rrs, cls=encoder)
+#fname = os.path.join(save_path, 'test.json')
+#with open(fname, 'w') as fp:
+ #   json.dump(dict_rrs, fp, cls=encoder)
+
+#with open(fname, 'r') as file:
+ #   data = json.load(file)
+
+#test_load = json.load(fname)         
