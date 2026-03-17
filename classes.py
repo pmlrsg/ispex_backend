@@ -31,10 +31,16 @@ class encoder(json.JSONEncoder):
     Encoder to put ispex/rrs class data in correct format when saving to JSON
     """
     def default(self, obj):
+        # tests for correct formatting
         if isinstance(obj, np.ndarray):
             return obj.tolist()
         elif isinstance(obj, logging.Logger):
             return str(obj)
+        elif isinstance(obj, Constants):
+            return str(obj)
+        elif isinstance(obj, np.int64):
+            return int(obj)
+       
         return super().default(obj)
 
 class Ispeximage(object):
@@ -707,7 +713,7 @@ class Ispeximage(object):
 
     def plot_spectra(self):
         """
-        Plot radiance spectra in arbitrary units
+        Plot radiance spectra (band responses) in arbitrary units
         """
         # Spectrum plot
         plt.rcParams.update({'font.size': 14, 'axes.labelsize': 14})
@@ -730,6 +736,50 @@ class Ispeximage(object):
         plt.ylim(0, 1.1*(qpmax+qmmax))  # 10% more space above the max value
         plt.xlim(350, 700)
         plt.savefig(os.path.join(self.save_path, f"{self.label}_spectrum.png"), bbox_inches="tight", dpi=300)
+        plt.close()
+        
+    def plot_spectra_SRFnorm(self):
+        """
+        Plots radiance spectra (SRF-normalized band responses for correlation-corrected
+        qp and qm) in arbitrary units.
+        """
+        # breakpoint()
+        wl_corr = self.lp_corr[:,0]
+        
+        # Masks for spectral channels in rrs plots - these are hardcoded for now
+        mask_R_corr = np.zeros(341) # `Red mask'
+        mask_R_corr[240-30:331-30] = 1
+        
+        mask_G_corr = np.zeros(341) # `Green mask'
+        mask_G_corr[130-30:271-30] = 1
+        
+        mask_B_corr = np.zeros(341) # `Blue mask'
+        mask_B_corr[60-30:161-30] = 1
+     
+        mask_corr = [mask_R_corr, mask_G_corr, mask_B_corr]
+        
+        # Spectrum plot
+        plt.rcParams.update({'font.size': 14, 'axes.labelsize': 14})
+        plt.figure(figsize=(10, 4))  # Wider figure
+
+        # Use a loop to plot each spectrum with a thicker line for visibility
+        for j, color in zip(range(1, 4), ['red', 'green', 'blue']):  # Explicit color names for clarity
+            plt.plot(wl_corr[mask_corr[j-1]==1], self.lp_corr[:,j][mask_corr[j-1]==1] + self.lm_corr[:,j][mask_corr[j-1]==1], c=color, linewidth=2)  # Thicker lines
+            plt.plot(wl_corr[mask_corr[j-1]==1], self.lm_corr[:,j][mask_corr[j-1]==1], c=color, linewidth=2, linestyle='--')  # Thicker lines
+            plt.plot(wl_corr[mask_corr[j-1]==1], self.lp_corr[:,j][mask_corr[j-1]==1], c=color, linewidth=2, linestyle=':')  # Thicker lines
+
+        plt.legend(["Red_L", "Red_Lm", "Red_Lp",
+                    "Green_L", "Green_Lm", "Green_Lp",
+                    "Blue_L", "Blue_Lm,", "Blue_Lp"], loc='upper right', fontsize=10)
+        plt.xlabel("Wavelength [nm]", fontsize=14, fontweight='bold')
+        plt.ylabel("Intensity [a.u.]", fontsize=14, fontweight='bold')
+        plt.grid(color='grey', linestyle='--', linewidth=0.5, alpha=0.7)
+        #  lpmax = np.nanmax(self.lp_corr[:,1:])
+        # lmmax = np.nanmax(self.lm_corr[:,1:])
+        # plt.ylim(0, 1.1*(lpmax+lmmax))  # 10% more space above the max value
+        plt.xlim(400, 700)
+        plt.gca().set_ylim(bottom=0)
+        plt.savefig(os.path.join(self.save_path, f"{self.label}_spectrum_SRFcorrected.png"), bbox_inches="tight", dpi=300)
         plt.close()
 
     def plot_fluorescent_lines(self, y, lines, lines_fit, qx):
@@ -1040,7 +1090,7 @@ class Ispeximage(object):
         ''' Derivies correlation-corrected qp and qm spectra. These have their own wavelength grids which are saved
         as the 0th column, following the format of calibrated qp and qm spectra. For now, a `3-band average shift'
         is used to correct the data. The function also experiments with correlation-corrected intensity, where the
-        polarization-averged SRF is used'''
+        polarization-averaged SRF is used'''
   
            
         # load `SRF-like' reference spectra for qp and qm
@@ -1066,11 +1116,11 @@ class Ispeximage(object):
         
         #  This is experiemental code where I compute cross correlation individual shifts for each polarization mode & bands
         # self.shift_p =                      [self.correlation_lag(spectra_calibrated_qp[:, 1], qp_ref[:, 1]),
-              #                               self.correlation_lag(spectra_calibrated_qp[:, 2], qp_ref[:, 2]),
+               #                              self.correlation_lag(spectra_calibrated_qp[:, 2], qp_ref[:, 2]),
                #                              self.correlation_lag(spectra_calibrated_qp[:, 3], qp_ref[:, 3])]
         
         # self.shift_m =                      [self.correlation_lag(spectra_calibrated_qm[:, 1], qm_ref[:, 1]),
-        #                                     self.correlation_lag(spectra_calibrated_qm[:, 2], qm_ref[:, 2]),
+             #                                self.correlation_lag(spectra_calibrated_qm[:, 2], qm_ref[:, 2]),
              #                                self.correlation_lag(spectra_calibrated_qm[:, 3], qm_ref[:, 3])]
         
         
@@ -1093,16 +1143,60 @@ class Ispeximage(object):
                 self.spectra_calibrated_qp_corr[:,i] = self.spectra_calibrated_qp[shift_tol + self.shift_p: len(wl) - shift_tol + self.shift_p, i]
                 self.spectra_calibrated_qm_corr[:,i] = self.spectra_calibrated_qm[shift_tol + self.shift_m: len(wl) - shift_tol + self.shift_m, i]
                 self.spectra_calibrated_I_corr[:,i] = (self.spectra_calibrated_qp + self.spectra_calibrated_qm)[shift_tol + self.shift_I: len(wl) - shift_tol + self.shift_I, i]
-            
+    
+    
+        # save SRF-corrected normalized radiance spectra - `l notation is used for radiance'
+        qp_ref_zoom = qp_ref[30:401-30]  # trim SRF to wl interval of correlation-corrected spectra
+        qm_ref_zoom = qm_ref[30:401-30] 
+        self.lp_corr = np.zeros([len(self.spectra_calibrated_qp_corr), len(self.spectra_calibrated_qp_corr.T)]) 
+        self.lm_corr = np.zeros([len(self.spectra_calibrated_qm_corr), len(self.spectra_calibrated_qm_corr.T)]) 
+
+        self.lp_corr[:,0] = wl_zoom
+        self.lm_corr[:,0] = wl_zoom
+        for i in range(1,len(self.lp_corr[0])):
+            self.lp_corr[:,i] = self.spectra_calibrated_qp_corr[:,i]/qp_ref_zoom[:,i] 
+            self.lm_corr[:,i] = self.spectra_calibrated_qm_corr[:,i]/qm_ref_zoom[:,i]
+
             # This is experiemental code where I compute cross correlation individual shifts for each polarization mode & bands
             # for i in range(1,len(self.spectra_calibrated_qp[0])):
             # self.spectra_calibrated_qp_corr[:,i] = self.spectra_calibrated_qp[shift_tol + self.shift_p[i-1]: len(wl) - shift_tol + self.shift_p[i-1], i]
             # self.spectra_calibrated_qm_corr[:,i] = self.spectra_calibrated_qm[shift_tol + self.shift_m[i-1]: len(wl) - shift_tol + self.shift_m[i-1], i]
             # self.spectra_calibrated_I_corr[:,i] = (self.spectra_calibrated_qp + self.spectra_calibrated_qm)[shift_tol + self.shift_I: len(wl) - shift_tol + self.shift_I, i]
 
-
         return self.spectra_calibrated_qp_corr, self.spectra_calibrated_qm_corr, self.spectra_calibrated_I_corr
-    
+   
+    def save_as_json(self, image_exp,length_limit=500,size_limit=10000):
+          
+        """
+        Saves contnet into image class instance as a JSON. The encoder class
+        is used to covert np.arrays into lists
+        
+        length_limit and size_limit are used to
+        
+        
+        """
+
+        dict_image = dict(vars(image_exp)) 
+        keys_image = list(dict_image.keys())
+
+        #
+        for i in range(len(dict_image)):
+            try:
+                if len(dict_image[keys_image[i]]) > length_limit:
+                    print('Removing ' + str(keys_image[i]) + ' from file export due to length')
+                    dict_image[keys_image[i]] = None
+                    print(np.size(dict_image[keys_image[i]]))
+                if np.size(dict_image[keys_image[i]]) > size_limit:
+                    print('Removing ' + str(keys_image[i]) + ' from file export due to size')
+                    dict_image[keys_image[i]] = None    
+            except:
+                pass
+      
+        
+        fname = os.path.join(image_exp.save_path,  f'{image_exp.label}_imagedata.json')
+        with open(fname, 'w') as fp:
+            json.dump(dict_image, fp, cls=encoder)
+
     
 class Ispexreflectance(object):
 
@@ -1227,7 +1321,7 @@ class Ispexreflectance(object):
             
         card_exp, water_exp, sky_exp: processed images for a given exposure
         card_mode: `spectral' (measured in lab) or `constant' (0.18)
-        rho: Fresnel relfectace factor - default constant for now.
+        rho: Fresnel reflectace factor - default constant for now (0.028)
         
         
         Spectral outputs to reflectance class:
@@ -1392,10 +1486,10 @@ class Ispexreflectance(object):
         Function to append card, sky and water radiances to rrs class (desirable
         for subsequent data analysis). This includes both:
             
-            (i) Non-corrected versions of band responses for card, water, sky
-            (ii) Correlation-corrected versions of band responses for card, water, sky
-            (iii) SRF-normalized relative radiance spectra
-            (iv) SRF functions
+            (i) Non-corrected versions of band responses for card, water, sky.
+            (ii) Correlation-corrected versions of band responses for card, water, sky.
+            (iii) SRF-normalized relative radiance spectra.
+            (iv) SRF functions.
             
         """
        
@@ -1635,7 +1729,7 @@ class Ispexreflectance(object):
     def save_as_json(self, rrs_exp):
           
         """
-        Saves contnet in each rrs class instance as a JSON. The encoder class
+        Saves content in each rrs class instance as a JSON. The encoder class
         is used to covert np.arrays into lists
         
         """
