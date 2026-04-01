@@ -1,9 +1,14 @@
 #! /usr/bin/env python
 import logging
 from classes import Ispeximage
+from classes import Ispexreflectance
 import glob
 import os
 import re
+
+# quality control functions
+from quality_control import linearity_qc
+from quality_control import acquistion_qc
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('ispex')
@@ -25,9 +30,10 @@ if len(images) == 0:
     raise FileNotFoundError(f"No images found in {img_path}")
 
 # dictionary to organise the files
-card_set = {'E0': None, 'E1': None, 'E2': None, 'E3': None, 'E4': None}
+card_set = {'E0': None, 'E1': None,  'E2': None, 'E3': None, 'E4': None}
 water_set = {'E0': None, 'E1': None, 'E2': None, 'E3': None, 'E4': None}
-sky_set = {'E0': None, 'E1': None, 'E2': None, 'E3': None, 'E4': None}
+sky_set = {'E0': None, 'E1': None,   'E2': None, 'E3': None, 'E4': None}
+rrs_set = {'E0': None, 'E1': None,   'E2': None, 'E3': None, 'E4': None}
 
 # Check that file spec conforms to expected pattern and populate the dictionary
 for impath in images:
@@ -68,13 +74,60 @@ for set in [card_set, water_set, sky_set]:
                 log.info(f"Processing {exposure}")
                 set[exposure].process()
                 set[exposure].plot_bounding_areas()
-                #set[exposure].plot_background_correction()
+                # set[exposure].plot_background_correction()
                 set[exposure].plot_spectra()
+                set[exposure].plot_spectra_SRFnorm() 
+                set[exposure].save_as_json(set[exposure])
             except Exception as e:
                 log.error(f"Error processing {set[exposure].dng_path}: {e}")
                 continue
 
-breakpoint()
+# calculate reflectances                
+for exposure in rrs_set:
+     # Test set of individual spectra exist before computing rrs
+     if  (hasattr(card_set[exposure],  'spectra_calibrated_qp') + 
+          hasattr(card_set[exposure],  'spectra_calibrated_qm') +
+          hasattr(water_set[exposure], 'spectra_calibrated_qp') +
+          hasattr(water_set[exposure], 'spectra_calibrated_qm') +
+          hasattr(sky_set[exposure],   'spectra_calibrated_qp') +
+          hasattr(sky_set[exposure],   'spectra_calibrated_qm')) == 6: 
+         
+              log.info(f"Calculating reflectance: {exposure}")
+           
+              # Initialize rrs set # 
+              rrs_set[exposure] = Ispexreflectance(water_set[exposure], save_path_root = "example_outputs/iSPEX_Set_20250806_0925_3537")
 
-# quality control - which image exposures should be used for Rrs
-# Produce Rrs (using new class in classes.py)
+              # calculate rrs #
+              rrs_set[exposure].calc_rrs(card_set[exposure], water_set[exposure], sky_set[exposure], card_mode ='spectral')
+ 
+              # Append radiances to rrs class #
+              rrs_set[exposure].append_radiances_to_rrsclass(card_set[exposure], water_set[exposure], sky_set[exposure])                       
+            
+              # rrs_set[exposure].plot_rrs(rrs_set[exposure]) #
+              rrs_set[exposure].plot_rrs_corr(rrs_set[exposure])
+              
+              # save as json #
+              rrs_set[exposure].save_as_json(rrs_set[exposure])
+              
+
+     else: 
+              log.info(f"calibrated qp and qm spectra were not present: {exposure}")
+
+             
+     # Quality control - which image exposures should be used for Rrs
+     # `Acquistion qc' applies on an expsoure-by-exposure basis
+     for exposure in rrs_set:
+         if hasattr(rrs_set[exposure], 'rrs') == 1:
+            acquistion_qc(rrs_set[exposure], card_set[exposure], water_set[exposure], sky_set[exposure])
+    
+     # `Linearity qc' applies over a set of exposures 
+     for set in [card_set, water_set, sky_set]:
+         linearity_qc(set)
+        
+     # output rrs_set as pickle object for further analysis  - this has now been replaced with
+     # json export
+     # import pickle 
+     # fname = os.path.join(save_path, img_path.split('/')[-1] + '.obj')
+     # object_pi = rrs_set
+     # file_pi = open(fname, 'wb') 
+     # pickle.dump(object_pi, file_pi)
